@@ -180,7 +180,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .data-primary small svg { width: 13px; }
 .data-metric strong { font-size: .88rem; }
 .data-metric--positive strong { color: #277b59; }
-.appointment-row { position: relative; }
+.appointment-row { position: relative; grid-template-columns: 52px minmax(180px, 1.4fr) repeat(3, minmax(90px, .7fr)) 82px; }
 .appointment-row::before { content: ""; position: absolute; inset: 18px auto 18px -24px; width: 3px; border-radius: 999px; background: #b1adb6; }
 .appointment-row--confirmed::before { background: #3977b8; }
 .appointment-row--completed::before { background: #27805d; }
@@ -196,6 +196,12 @@ button { -webkit-tap-highlight-color: transparent; }
 .status-text--confirmed { color: #326ca7 !important; }
 .status-text--completed { color: #287b5a !important; }
 .status-text--cancelled { color: #a3303b !important; }
+.data-metric--pending strong { color: #a45a24; }
+.data-metric--paid strong { color: #277b59; }
+.payment-button { color: #3977a8; }
+.payment-button:hover { color: #235d89; background: #edf5fb; }
+.payment-button:disabled { cursor: default; opacity: .3; }
+.payment-button:disabled:hover { color: #aaa7b0; background: transparent; }
 .client-list { display: grid; }
 .client-row { display: grid; grid-template-columns: 42px minmax(220px, 1.5fr) minmax(170px, .8fr) 82px; align-items: center; gap: 14px; min-height: 98px; border-bottom: 1px solid #efedf0; padding: 14px 0; }
 .client-row:last-child { border-bottom: 0; }
@@ -268,6 +274,16 @@ input.field-control { padding: 0 13px; }
 .backup-box strong { font-size: .84rem; }
 .backup-box span { color: #7d7a85; font-size: .72rem; line-height: 1.4; }
 .backup-box button { min-height: 40px; flex: 0 0 auto; border-radius: 11px; color: #8f2752; }
+.payment-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; border-radius: 15px; padding: 14px; background: #f6f5f7; }
+.payment-summary > span { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.payment-summary small { color: #7c7983; font-size: .68rem; }
+.payment-summary strong { font-size: .9rem; }
+.payment-summary--pending strong { color: #a45a24; }
+.payment-history { display: grid; gap: 0; overflow: hidden; border: 1px solid #e5e3e7; border-radius: 14px; }
+.payment-history > strong { padding: 12px 14px; background: #f7f6f8; font-size: .78rem; }
+.payment-history > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #efedf0; padding: 11px 14px; }
+.payment-history span { color: #77747e; font-size: .73rem; }
+.payment-history div strong { color: #277b59; font-size: .78rem; }
 .form-footer { grid-column: 1 / -1; margin-top: 5px; }
 .form-footer button { min-height: 42px; border-radius: 12px; }
 .delete-action { background: #bd2b36 !important; }
@@ -276,6 +292,7 @@ input.field-control { padding: 0 13px; }
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .data-row { grid-template-columns: 52px minmax(160px, 1.4fr) repeat(2, minmax(85px, .7fr)) 38px; }
+  .appointment-row { grid-template-columns: 52px minmax(160px, 1.4fr) repeat(2, minmax(85px, .7fr)) 82px; }
   .data-row .data-metric:nth-of-type(4) { display: none; }
 }
 
@@ -315,6 +332,7 @@ input.field-control { padding: 0 13px; }
   .secondary-action { width: 43px; min-width: 43px !important; height: 43px; overflow: hidden; padding: 0 !important; font-size: 0; }
   .list-panel { border-radius: 20px; padding: 3px 15px; }
   .data-row, .data-row--expense { grid-template-columns: 44px minmax(0, 1fr) auto 34px; gap: 10px; min-height: 78px; }
+  .appointment-row { grid-template-columns: 44px minmax(0, 1fr) auto 72px; }
   .data-row .data-metric:nth-of-type(3), .data-row .data-metric:nth-of-type(4) { display: none; }
   .data-row .data-metric--positive { display: flex !important; }
   .data-row--expense .data-metric { display: flex !important; }
@@ -327,6 +345,7 @@ input.field-control { padding: 0 13px; }
   .client-history { display: none; }
   .client-main p { max-width: 100%; }
   .row-actions .icon-button { width: 34px; }
+  .payment-summary { grid-template-columns: 1fr; }
   .data-date { width: 41px; height: 47px; }
   .data-primary { min-width: 0; }
   .data-primary strong, .data-primary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
