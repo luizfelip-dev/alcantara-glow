@@ -1,8 +1,9 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, lazy, Suspense, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { Loader2, LockKeyhole, Sparkles } from "lucide-react";
-import { StudioDashboard } from "../app/studio-dashboard";
 import { supabase, supabaseConfigured } from "../lib/supabase";
+
+const StudioDashboard = lazy(() => import("../app/studio-dashboard").then((module) => ({ default: module.StudioDashboard })));
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -24,7 +25,7 @@ export default function App() {
   if (loading) return <div className="auth-shell"><Loader2 className="auth-spinner" aria-label="Carregando" /></div>;
   if (!session) return <Login />;
 
-  return <StudioDashboard userEmail={session.user.email ?? "Conta do studio"} onSignOut={() => void supabase.auth.signOut()} />;
+  return <Suspense fallback={<div className="auth-shell"><Loader2 className="auth-spinner" aria-label="Carregando painel" /></div>}><StudioDashboard userEmail={session.user.email ?? "Conta do studio"} onSignOut={() => void supabase.auth.signOut()} /></Suspense>;
 }
 
 function Login() {
