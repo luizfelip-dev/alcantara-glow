@@ -4,6 +4,7 @@ import { Loader2, LockKeyhole, Sparkles } from "lucide-react";
 import { supabase, supabaseConfigured } from "../lib/supabase";
 
 const StudioDashboard = lazy(() => import("../app/studio-dashboard").then((module) => ({ default: module.StudioDashboard })));
+const isTestEnvironment = import.meta.env.VITE_APP_ENV === "test";
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -25,7 +26,7 @@ export default function App() {
   if (loading) return <div className="auth-shell"><Loader2 className="auth-spinner" aria-label="Carregando" /></div>;
   if (!session) return <Login />;
 
-  return <Suspense fallback={<div className="auth-shell"><Loader2 className="auth-spinner" aria-label="Carregando painel" /></div>}><StudioDashboard userEmail={session.user.email ?? "Conta do studio"} onSignOut={() => void supabase.auth.signOut()} /></Suspense>;
+  return <Suspense fallback={<div className="auth-shell"><Loader2 className="auth-spinner" aria-label="Carregando painel" /></div>}><StudioDashboard userEmail={session.user.email ?? "Conta do studio"} onSignOut={() => void supabase.auth.signOut()} testEnvironment={isTestEnvironment} /></Suspense>;
 }
 
 function Login() {
@@ -42,13 +43,14 @@ function Login() {
     setSaving(true); setError(""); setMessage("");
     const result = mode === "login"
       ? await supabase.auth.signInWithPassword({ email, password })
-      : await supabase.auth.signUp({ email, password });
+      : await supabase.auth.signUp({ email, password, options: { emailRedirectTo: `${window.location.origin}${window.location.pathname}` } });
     if (result.error) setError(result.error.message);
     else if (mode === "signup" && !result.data.session) setMessage("Conta criada. Confirme o e-mail para entrar.");
     setSaving(false);
   };
 
   return <main className="auth-shell"><section className="auth-card">
+    {isTestEnvironment ? <span className="test-badge">V2 · Ambiente de testes</span> : null}
     <div className="auth-brand"><img className="auth-logo" src="./studio-em-dia-logo.jpeg" alt="Studio em Dia — Gestão financeira para maquiadoras" /></div>
     <div className="auth-heading"><span><LockKeyhole /> Acesso protegido</span><h1>{mode === "login" ? "Entrar no studio" : "Criar primeiro acesso"}</h1><p>Use a mesma conta no celular e no computador.</p></div>
     <form className="auth-form" onSubmit={submit}>
