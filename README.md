@@ -1,12 +1,12 @@
-# Alcântara Glow
+# Studio em Dia
 
-**Gestão financeira simples e inteligente para profissionais da beleza.**
+**Gestão financeira para maquiadoras.**
 
-[Acessar o Alcântara Glow](https://luizfelip-dev.github.io/alcantara-glow/)
+[Acessar o Studio em Dia](https://luizfelip-dev.github.io/studio-em-dia/)
 
 ## Sobre o projeto
 
-O Alcântara Glow é uma aplicação web criada para facilitar o controle financeiro de um studio de maquiagem. Em uma interface intuitiva e responsiva, a profissional consegue acompanhar atendimentos, custos, despesas, faturamento, lucro, metas e reserva mensal.
+O Studio em Dia é uma aplicação web criada para facilitar o controle financeiro de maquiadoras. Em uma interface intuitiva e responsiva, a profissional consegue acompanhar atendimentos, custos, despesas, faturamento, lucro, metas e reserva mensal.
 
 O projeto foi pensado para funcionar com a mesma facilidade no computador e no celular, sem exigir conhecimentos técnicos ou cálculos manuais.
 
@@ -56,4 +56,4 @@ Isso garante que cada conta visualize e altere somente seus próprios atendiment
 
 Projeto em produção e disponível em:
 
-**https://luizfelip-dev.github.io/alcantara-glow/**
+**https://luizfelip-dev.github.io/studio-em-dia/**
