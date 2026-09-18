@@ -120,10 +120,39 @@ export async function studioRequest(url: string, init?: RequestInit) {
   }
 
   if (method === "PUT" && path.pathname.endsWith("/appointments")) {
-    const allowedStatuses: AppointmentStatus[] = ["scheduled", "confirmed", "completed", "cancelled"];
-    const status = String(payload.status ?? "") as AppointmentStatus;
-    if (!allowedStatuses.includes(status)) throw new Error("Status de atendimento inválido.");
-    const result = await supabase.from("appointments").update({ status }).eq("id", Number(payload.id));
+    if ("status" in payload) {
+      const allowedStatuses: AppointmentStatus[] = ["scheduled", "confirmed", "completed", "cancelled"];
+      const status = String(payload.status ?? "") as AppointmentStatus;
+      if (!allowedStatuses.includes(status)) throw new Error("Status de atendimento inválido.");
+      const result = await supabase.from("appointments").update({ status }).eq("id", Number(payload.id));
+      fail(result.error); return { ok: true };
+    }
+    const appointmentId = Number(payload.id);
+    const clientId = Number(payload.clientId);
+    const amountCents = Number(payload.amountCents);
+    const service = String(payload.service ?? "").trim();
+    const serviceTime = String(payload.serviceTime ?? "").trim();
+    if (!Number.isInteger(appointmentId) || !Number.isInteger(clientId)) throw new Error("Atendimento inválido.");
+    if (!Number.isInteger(amountCents) || amountCents <= 0) throw new Error("Informe um valor válido para o atendimento.");
+    if (!service || !serviceTime) throw new Error("Informe os serviços e o horário do atendimento.");
+    const [clientResult, paymentsResult] = await Promise.all([
+      supabase.from("clients").select("id,name").eq("id", clientId).maybeSingle(),
+      supabase.from("payments").select("amount_cents").eq("appointment_id", appointmentId),
+    ]);
+    fail(clientResult.error); fail(paymentsResult.error);
+    if (!clientResult.data) throw new Error("Escolha uma cliente cadastrada.");
+    const paidCents = (paymentsResult.data ?? []).reduce((sum, payment) => sum + payment.amount_cents, 0);
+    if (amountCents < paidCents) throw new Error("O valor do atendimento não pode ser menor que o total já recebido.");
+    const result = await supabase.from("appointments").update({
+      client_id: clientResult.data.id,
+      client_name: clientResult.data.name,
+      service,
+      service_date: payload.serviceDate,
+      service_time: serviceTime,
+      amount_cents: amountCents,
+      extra_cost_cents: Math.max(0, Number(payload.extraCostCents ?? 0)),
+      payment_fee_cents: Math.max(0, Number(payload.paymentFeeCents ?? 0)),
+    }).eq("id", appointmentId);
     fail(result.error); return { ok: true };
   }
 
@@ -143,6 +172,33 @@ export async function studioRequest(url: string, init?: RequestInit) {
     const paidCents = (paymentsResult.data ?? []).reduce((sum, payment) => sum + payment.amount_cents, 0);
     if (amountCents > appointmentResult.data.amount_cents - paidCents) throw new Error("O pagamento não pode ser maior que o valor pendente.");
     const result = await supabase.from("payments").insert({ appointment_id: appointmentId, amount_cents: amountCents, kind, paid_at: payload.paidAt, note: String(payload.note ?? "").trim() || null });
+    fail(result.error); return { ok: true };
+  }
+
+  if (method === "PUT" && path.pathname.endsWith("/payments")) {
+    const paymentId = Number(payload.id);
+    const amountCents = Number(payload.amountCents);
+    const allowedKinds: PaymentKind[] = ["deposit", "partial", "final", "full"];
+    const kind = String(payload.kind ?? "") as PaymentKind;
+    if (!Number.isInteger(paymentId) || !Number.isInteger(amountCents) || amountCents <= 0) throw new Error("Informe um pagamento válido.");
+    if (!allowedKinds.includes(kind)) throw new Error("Tipo de pagamento inválido.");
+    const paymentResult = await supabase.from("payments").select("id,appointment_id").eq("id", paymentId).maybeSingle();
+    fail(paymentResult.error);
+    if (!paymentResult.data) throw new Error("Pagamento não encontrado.");
+    const [appointmentResult, paymentsResult] = await Promise.all([
+      supabase.from("appointments").select("amount_cents").eq("id", paymentResult.data.appointment_id).maybeSingle(),
+      supabase.from("payments").select("id,amount_cents").eq("appointment_id", paymentResult.data.appointment_id).neq("id", paymentId),
+    ]);
+    fail(appointmentResult.error); fail(paymentsResult.error);
+    if (!appointmentResult.data) throw new Error("Atendimento não encontrado.");
+    const otherPaymentsCents = (paymentsResult.data ?? []).reduce((sum, payment) => sum + payment.amount_cents, 0);
+    if (amountCents > appointmentResult.data.amount_cents - otherPaymentsCents) throw new Error("O pagamento não pode ser maior que o valor pendente.");
+    const result = await supabase.from("payments").update({
+      amount_cents: amountCents,
+      kind,
+      paid_at: payload.paidAt,
+      note: String(payload.note ?? "").trim() || null,
+    }).eq("id", paymentId);
     fail(result.error); return { ok: true };
   }
 
@@ -185,7 +241,7 @@ export async function studioRequest(url: string, init?: RequestInit) {
 
   if (method === "DELETE") {
     const table = path.pathname.split("/").pop();
-    if (!table || !["appointments", "clients", "expenses", "products"].includes(table)) throw new Error("Registro inválido.");
+    if (!table || !["appointments", "clients", "expenses", "products", "payments"].includes(table)) throw new Error("Registro inválido.");
     const id = Number(path.searchParams.get("id"));
     const result = await supabase.from(table).delete().eq("id", id);
     fail(result.error); return { ok: true };
