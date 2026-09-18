@@ -12,11 +12,8 @@ Controle financeiro responsivo para registrar atendimentos, produtos, gastos, lu
 
 Os dados financeiros não ficam no GitHub. O banco usa Row Level Security (RLS), e cada conta autenticada acessa somente os próprios registros. Nunca adicione uma chave `service_role` ao projeto ou ao navegador.
 
-## Configuração
+## Configuração local
 
-1. Crie um projeto no Supabase.
-2. Execute `supabase/migrations/0001_initial_schema.sql` no banco.
-3. Copie `.env.example` para `.env` e informe a URL e a chave publicável do projeto.
-4. Rode `npm install` e `npm run dev`.
+O projeto já está conectado ao Supabase. Rode `npm install` e `npm run dev`.
 
-Para publicar pelo workflow, crie no repositório as variáveis `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY` e execute **Publicar no GitHub Pages** em Actions.
+O deploy no GitHub Pages acontece automaticamente a cada atualização da branch `main` e também pode ser iniciado manualmente em **Actions > Publicar no GitHub Pages**.
