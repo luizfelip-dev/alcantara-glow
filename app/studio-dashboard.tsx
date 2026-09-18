@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   ArrowDownRight, ArrowUpRight, Banknote, Box, CalendarDays, CalendarPlus, ChevronLeft, Clock3,
   ChevronRight, CircleDollarSign, LayoutDashboard, Loader2, PackagePlus,
-  Download, LogOut, MessageCircle, Pencil, Phone, PiggyBank, Plus, ReceiptText, Settings, Target,
+  Download, LogOut, MessageCircle, Pencil, Phone, PiggyBank, Plus, Printer, ReceiptText, Settings, Target,
   Trash2, UserPlus, Users, WalletCards,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -142,6 +142,10 @@ async function requestJson(url: string, init?: RequestInit) {
 function excelDate(value: string) {
   const date = new Date(`${value.slice(0, 10)}T12:00:00`);
   return Number.isNaN(date.getTime()) ? value : date;
+}
+
+function escapeHtml(value: string | number) {
+  return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character] ?? character);
 }
 
 async function downloadBackup(data: StudioData) {
@@ -300,6 +304,21 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
   const goalPercent = goal > 0 ? Math.min(100, Math.round((totals.received / goal) * 100)) : 0;
   const goalRemaining = Math.max(0, goal - totals.received);
 
+  const printMonthlyReport = () => {
+    const reportWindow = window.open("", "_blank");
+    if (!reportWindow) { toast.error("Permita a abertura de uma nova aba para gerar o relatório."); return; }
+    reportWindow.opener = null;
+    const reportMonth = monthName.format(selectedMonthDate);
+    const appointmentsRows = monthAppointments.map((item) => `<tr><td>${escapeHtml(new Intl.DateTimeFormat("pt-BR").format(parseDate(item.serviceDate)))}</td><td>${escapeHtml(item.serviceTime || "—")}</td><td>${escapeHtml(item.clientName)}</td><td>${escapeHtml(item.service)}</td><td><span class="status status-${item.status}">${escapeHtml(APPOINTMENT_STATUS[item.status])}</span></td><td>${escapeHtml(money(item.amountCents))}</td><td>${escapeHtml(money(item.paidCents))}</td><td>${escapeHtml(money(item.pendingCents))}</td></tr>`).join("");
+    const expensesRows = monthExpenses.map((item) => `<tr><td>${escapeHtml(new Intl.DateTimeFormat("pt-BR").format(parseDate(item.expenseDate)))}</td><td>${escapeHtml(item.description)}</td><td>${escapeHtml(item.category)}</td><td>${escapeHtml(money(item.amountCents))}</td></tr>`).join("");
+    reportWindow.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Relatório - ${escapeHtml(reportMonth)}</title><style>
+      :root{font-family:Arial,sans-serif;color:#302c32}*{box-sizing:border-box}body{max-width:1120px;margin:0 auto;padding:32px;background:#fff}.actions{display:flex;justify-content:flex-end;margin-bottom:20px}.actions button{border:0;border-radius:10px;padding:11px 16px;color:#fff;background:#8f2752;font-weight:700;cursor:pointer}header{display:flex;align-items:flex-end;justify-content:space-between;border-bottom:3px solid #8f2752;padding-bottom:14px}h1{margin:0;color:#8f2752;font-size:25px}header p{margin:5px 0 0;color:#6f6870;text-transform:capitalize}.generated{font-size:12px;color:#777079}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:22px 0}.card{border:1px solid #e4dde1;border-radius:12px;padding:13px;background:#faf8f9}.card span{display:block;color:#777079;font-size:11px}.card strong{display:block;margin-top:5px;font-size:17px}.section{margin-top:26px}h2{margin:0 0 10px;font-size:16px}table{width:100%;border-collapse:collapse;font-size:11px}th{padding:9px 7px;text-align:left;color:#fff;background:#8f2752}td{border-bottom:1px solid #e8e3e6;padding:8px 7px;vertical-align:top}th:nth-last-child(-n+3),td:nth-last-child(-n+3){text-align:right}.expenses th:last-child,.expenses td:last-child{text-align:right}.status{font-weight:700}.status-confirmed{color:#326ca7}.status-completed{color:#287b5a}.status-cancelled{color:#a3303b}.empty{border:1px solid #e4dde1;border-radius:10px;padding:14px;color:#777079;font-size:12px}.note{margin-top:22px;color:#777079;font-size:10px}@media(max-width:700px){body{padding:18px}.summary{grid-template-columns:repeat(2,1fr)}header{align-items:flex-start;flex-direction:column;gap:8px}.table-wrap{overflow-x:auto}table{min-width:850px}}@media print{@page{size:A4 landscape;margin:10mm}body{max-width:none;padding:0}.actions{display:none}.summary{break-inside:avoid}.section{break-inside:auto}thead{display:table-header-group}tr{break-inside:avoid}.note{margin-top:14px}}
+    </style></head><body><div class="actions"><button type="button" onclick="window.print()">Imprimir ou salvar em PDF</button></div><header><div><h1>Studio em Dia</h1><p>Relatório mensal · ${escapeHtml(reportMonth)}</p></div><span class="generated">Gerado em ${escapeHtml(new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date()))}</span></header><section class="summary"><div class="card"><span>Recebido</span><strong>${escapeHtml(money(totals.received))}</strong></div><div class="card"><span>A receber</span><strong>${escapeHtml(money(totals.pending))}</strong></div><div class="card"><span>Receita prevista</span><strong>${escapeHtml(money(totals.revenue))}</strong></div><div class="card"><span>Lucro previsto</span><strong>${escapeHtml(money(totals.profit))}</strong></div><div class="card"><span>Custos e gastos</span><strong>${escapeHtml(money(totals.serviceCosts + totals.expenses))}</strong></div><div class="card"><span>Reserva</span><strong>${escapeHtml(money(totals.reserve))}</strong></div><div class="card"><span>Saldo disponível</span><strong>${escapeHtml(money(totals.available))}</strong></div><div class="card"><span>Atendimentos</span><strong>${monthAppointments.length}</strong></div></section><section class="section"><h2>Atendimentos</h2>${appointmentsRows ? `<div class="table-wrap"><table><thead><tr><th>Data</th><th>Horário</th><th>Cliente</th><th>Serviços</th><th>Status</th><th>Valor</th><th>Recebido</th><th>Pendente</th></tr></thead><tbody>${appointmentsRows}</tbody></table></div>` : '<p class="empty">Nenhum atendimento registrado neste mês.</p>'}</section><section class="section"><h2>Gastos</h2>${expensesRows ? `<div class="table-wrap"><table class="expenses"><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Valor</th></tr></thead><tbody>${expensesRows}</tbody></table></div>` : '<p class="empty">Nenhum gasto registrado neste mês.</p>'}</section><p class="note">Atendimentos cancelados aparecem na lista, mas não entram na receita prevista, nos custos ou no lucro.</p></body></html>`);
+    reportWindow.document.close();
+    reportWindow.focus();
+    window.setTimeout(() => reportWindow.print(), 350);
+  };
+
   const deleteItem = async () => {
     if (!deleteTarget) return;
     setSaving(true);
@@ -334,7 +353,7 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
           <div><p className="eyebrow">Visão do mês</p><h1>{monthName.format(selectedMonthDate)}</h1></div>
           <div className="topbar-actions">
             <div className="month-switcher" aria-label="Escolher mês"><button type="button" onClick={() => moveMonth(-1)} aria-label="Mês anterior"><ChevronLeft /></button><button type="button" onClick={() => setSelectedMonth(monthKey())}>Hoje</button><button type="button" onClick={() => moveMonth(1)} aria-label="Próximo mês"><ChevronRight /></button></div>
-            <Button className="primary-action" onClick={() => setAppointmentOpen(true)}><Plus /> Novo atendimento</Button><button className="topbar-logout" type="button" onClick={onSignOut} aria-label="Sair da conta"><LogOut /></button>
+            <Button className="report-action" variant="outline" onClick={printMonthlyReport}><Printer /> Relatório</Button><Button className="primary-action" onClick={() => setAppointmentOpen(true)}><Plus /> Novo atendimento</Button><button className="topbar-logout" type="button" onClick={onSignOut} aria-label="Sair da conta"><LogOut /></button>
           </div>
         </header>
 
