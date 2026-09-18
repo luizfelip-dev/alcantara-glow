@@ -2,7 +2,8 @@ import { supabase } from "./supabase";
 
 type ProductRow = { id: number; name: string; purchase_price_cents: number; total_amount: number; unit: string; use_per_service: number };
 type ClientRow = { id: number; name: string; phone: string | null; notes: string | null; created_at: string };
-type AppointmentRow = { id: number; client_id: number | null; client_name: string; service: string; service_date: string; amount_cents: number; product_cost_cents: number; extra_cost_cents: number; payment_fee_cents: number };
+type AppointmentStatus = "scheduled" | "confirmed" | "completed" | "cancelled";
+type AppointmentRow = { id: number; client_id: number | null; client_name: string; service: string; service_date: string; service_time: string | null; status: AppointmentStatus; amount_cents: number; product_cost_cents: number; extra_cost_cents: number; payment_fee_cents: number };
 type ExpenseRow = { id: number; description: string; category: string; expense_date: string; amount_cents: number };
 type SettingsRow = { monthly_goal_cents: number; reserve_percent: number };
 
@@ -30,6 +31,8 @@ function appointmentFromRow(item: AppointmentRow) {
     clientName: item.client_name,
     service: item.service,
     serviceDate: item.service_date,
+    serviceTime: item.service_time?.slice(0, 5) ?? "",
+    status: item.status,
     amountCents: item.amount_cents,
     productCostCents: item.product_cost_cents,
     extraCostCents: item.extra_cost_cents,
@@ -51,7 +54,7 @@ export async function getStudioData() {
   const [clientsResult, productsResult, appointmentsResult, expensesResult, settingsResult] = await Promise.all([
     supabase.from("clients").select("id,name,phone,notes,created_at").order("name", { ascending: true }),
     supabase.from("products").select("id,name,purchase_price_cents,total_amount,unit,use_per_service").order("created_at", { ascending: false }),
-    supabase.from("appointments").select("id,client_id,client_name,service,service_date,amount_cents,product_cost_cents,extra_cost_cents,payment_fee_cents").order("service_date", { ascending: false }),
+    supabase.from("appointments").select("id,client_id,client_name,service,service_date,service_time,status,amount_cents,product_cost_cents,extra_cost_cents,payment_fee_cents").order("service_date", { ascending: false }).order("service_time", { ascending: false }),
     supabase.from("expenses").select("id,description,category,expense_date,amount_cents").order("expense_date", { ascending: false }),
     supabase.from("studio_settings").select("monthly_goal_cents,reserve_percent").maybeSingle(),
   ]);
@@ -88,9 +91,18 @@ export async function studioRequest(url: string, init?: RequestInit) {
     if (!clientResult.data) throw new Error("Escolha uma cliente cadastrada.");
     const result = await supabase.from("appointments").insert({
       client_id: clientResult.data.id, client_name: clientResult.data.name, service: String(payload.service ?? "").trim(), service_date: payload.serviceDate,
+      service_time: payload.serviceTime, status: "scheduled",
       amount_cents: payload.amountCents, product_cost_cents: productCostCents,
       extra_cost_cents: Math.max(0, Number(payload.extraCostCents ?? 0)), payment_fee_cents: Math.max(0, Number(payload.paymentFeeCents ?? 0)),
     });
+    fail(result.error); return { ok: true };
+  }
+
+  if (method === "PUT" && path.pathname.endsWith("/appointments")) {
+    const allowedStatuses: AppointmentStatus[] = ["scheduled", "confirmed", "completed", "cancelled"];
+    const status = String(payload.status ?? "") as AppointmentStatus;
+    if (!allowedStatuses.includes(status)) throw new Error("Status de atendimento inválido.");
+    const result = await supabase.from("appointments").update({ status }).eq("id", Number(payload.id));
     fail(result.error); return { ok: true };
   }
 
