@@ -176,8 +176,26 @@ button { -webkit-tap-highlight-color: transparent; }
 .data-primary, .data-metric { display: flex; flex-direction: column; gap: 4px; }
 .data-primary strong { font-size: .9rem; }
 .data-primary span, .data-metric span { color: #85828c; font-size: .74rem; }
+.data-primary small { display: flex; align-items: center; gap: 5px; color: #6e6b75; font-size: .72rem; }
+.data-primary small svg { width: 13px; }
 .data-metric strong { font-size: .88rem; }
 .data-metric--positive strong { color: #277b59; }
+.appointment-row { position: relative; }
+.appointment-row::before { content: ""; position: absolute; inset: 18px auto 18px -24px; width: 3px; border-radius: 999px; background: #b1adb6; }
+.appointment-row--confirmed::before { background: #3977b8; }
+.appointment-row--completed::before { background: #27805d; }
+.appointment-row--cancelled { opacity: .68; }
+.appointment-row--cancelled::before { background: #b12d38; }
+.status-control { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.status-control > span { color: #85828c; font-size: .74rem; }
+.status-control select { width: 100%; min-height: 36px; border: 1px solid #dedde2; border-radius: 10px; padding: 0 28px 0 10px; color: #4f4c56; background: #fff; outline: 0; font-size: .76rem; font-weight: 700; }
+.status-control select:focus { border-color: #b94a74; box-shadow: 0 0 0 3px rgb(185 74 116 / 12%); }
+.status-control select:disabled { cursor: wait; opacity: .65; }
+.status-text { font-weight: 750; }
+.status-text--scheduled { color: #765f30 !important; }
+.status-text--confirmed { color: #326ca7 !important; }
+.status-text--completed { color: #287b5a !important; }
+.status-text--cancelled { color: #a3303b !important; }
 .client-list { display: grid; }
 .client-row { display: grid; grid-template-columns: 42px minmax(220px, 1.5fr) minmax(170px, .8fr) 82px; align-items: center; gap: 14px; min-height: 98px; border-bottom: 1px solid #efedf0; padding: 14px 0; }
 .client-row:last-child { border-bottom: 0; }
@@ -300,6 +318,11 @@ input.field-control { padding: 0 13px; }
   .data-row .data-metric:nth-of-type(3), .data-row .data-metric:nth-of-type(4) { display: none; }
   .data-row .data-metric--positive { display: flex !important; }
   .data-row--expense .data-metric { display: flex !important; }
+  .appointment-row .data-metric--positive { display: none !important; }
+  .appointment-row::before { inset-block: 14px; left: -15px; }
+  .status-control { align-items: flex-end; }
+  .status-control > span { display: none; }
+  .status-control select { width: 112px; }
   .client-row { grid-template-columns: 38px minmax(0, 1fr) 72px; gap: 10px; min-height: 88px; }
   .client-history { display: none; }
   .client-main p { max-width: 100%; }
