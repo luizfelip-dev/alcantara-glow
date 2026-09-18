@@ -139,38 +139,114 @@ async function requestJson(url: string, init?: RequestInit) {
   return studioRequest(url, init);
 }
 
-function csvCell(value: string | number) {
-  let text = String(value);
-  if (/^[=+\-@]/.test(text)) text = `'${text}`;
-  return `"${text.replace(/"/g, '""')}"`;
+function excelDate(value: string) {
+  const date = new Date(`${value.slice(0, 10)}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? value : date;
 }
 
-function decimalFromCents(value: number) {
-  return (value / 100).toFixed(2).replace(".", ",");
-}
+async function downloadBackup(data: StudioData) {
+  const toastId = toast.loading("Preparando o backup em Excel...");
+  try {
+    const { default: ExcelJS } = await import("exceljs");
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Studio em Dia";
+    workbook.created = new Date();
+    workbook.modified = new Date();
 
-function downloadBackup(data: StudioData) {
-  const header = ["tipo", "data", "horario", "status", "nome", "detalhe", "valor_reais", "recebido_reais", "pendente_reais", "custo_reais", "lucro_reais", "quantidade", "unidade", "uso_medio", "telefone", "observacoes"];
-  const rows: Array<Array<string | number>> = [
-    ...data.clients.map((item) => ["Cliente", item.createdAt.slice(0, 10), "", "", item.name, "", "", "", "", "", "", "", "", "", item.phone, item.notes]),
-    ...data.appointments.map((item) => ["Atendimento", item.serviceDate, item.serviceTime, APPOINTMENT_STATUS[item.status], item.clientName, item.service, decimalFromCents(item.amountCents), decimalFromCents(item.paidCents), decimalFromCents(item.pendingCents), decimalFromCents(item.totalCostCents), decimalFromCents(item.profitCents), "", "", "", "", ""]),
-    ...data.appointments.flatMap((item) => item.payments.map((payment) => ["Pagamento", payment.paidAt, "", PAYMENT_KIND[payment.kind], item.clientName, payment.note, decimalFromCents(payment.amountCents), decimalFromCents(payment.amountCents), "", "", "", "", "", "", "", ""])),
-    ...data.expenses.map((item) => ["Gasto", item.expenseDate, "", "", item.description, item.category, decimalFromCents(item.amountCents), "", "", "", "", "", "", "", "", ""]),
-    ...data.products.map((item) => ["Produto", "", "", "", item.name, "", decimalFromCents(item.purchasePriceCents), "", "", decimalFromCents(item.costPerUseCents), "", item.totalAmount, item.unit, item.usePerService, "", ""]),
-    ["Configuração", "", "", "", "Meta mensal", "", decimalFromCents(data.settings.monthlyGoalCents), "", "", "", "", "", "", "", "", ""],
-    ["Configuração", "", "", "", "Reserva", `${data.settings.reservePercent}%`, "", "", "", "", "", "", "", "", "", ""],
-  ];
-  const csv = [header, ...rows].map((row) => row.map(csvCell).join(";")).join("\r\n");
-  const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `studio-em-dia-backup-${todayInput()}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-  toast.success("Backup baixado com sucesso.");
+    const brand = "FF8F2752";
+    const brandLight = "FFF8EAF0";
+    const border = "FFE4DDE1";
+    const text = "FF302C32";
+    const currencyFormat = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
+
+    const addDataSheet = (
+      name: string,
+      description: string,
+      headers: string[],
+      rows: Array<Array<string | number | Date>>,
+      widths: number[],
+      dateColumns: number[] = [],
+      currencyColumns: number[] = [],
+    ) => {
+      const sheet = workbook.addWorksheet(name, { views: [{ state: "frozen", ySplit: 4, showGridLines: false }] });
+      sheet.getCell("A1").value = name;
+      sheet.getCell("A1").font = { name: "Arial", size: 15, bold: true, color: { argb: brand } };
+      sheet.getCell("A2").value = description;
+      sheet.getCell("A2").font = { name: "Arial", size: 10, italic: true, color: { argb: "FF777079" } };
+      sheet.getRow(4).values = headers;
+      sheet.getRow(4).height = 25;
+      sheet.getRow(4).eachCell((cell) => {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: brand } };
+        cell.font = { name: "Arial", size: 10, bold: true, color: { argb: "FFFFFFFF" } };
+        cell.alignment = { horizontal: "center", vertical: "middle" };
+      });
+      rows.forEach((values) => {
+        const row = sheet.addRow(values);
+        row.height = 22;
+        row.eachCell((cell) => {
+          cell.font = { name: "Arial", size: 10, color: { argb: text } };
+          cell.alignment = { vertical: "middle" };
+          cell.border = { bottom: { style: "thin", color: { argb: border } } };
+        });
+      });
+      widths.forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
+      dateColumns.forEach((column) => { sheet.getColumn(column).numFmt = "dd/mm/yyyy"; });
+      currencyColumns.forEach((column) => { sheet.getColumn(column).numFmt = currencyFormat; });
+      if (rows.length) sheet.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4, column: headers.length } };
+      sheet.pageSetup = { orientation: headers.length > 6 ? "landscape" : "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.3, right: 0.3, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } };
+      return sheet;
+    };
+
+    const activeAppointments = data.appointments.filter((item) => item.status !== "cancelled");
+    const revenue = activeAppointments.reduce((sum, item) => sum + item.amountCents, 0) / 100;
+    const received = data.appointments.reduce((sum, item) => sum + item.paidCents, 0) / 100;
+    const pending = activeAppointments.reduce((sum, item) => sum + item.pendingCents, 0) / 100;
+    const serviceCosts = activeAppointments.reduce((sum, item) => sum + item.totalCostCents, 0) / 100;
+    const expenses = data.expenses.reduce((sum, item) => sum + item.amountCents, 0) / 100;
+
+    const summary = addDataSheet("Resumo", "Visão geral de todos os registros incluídos neste backup.", ["Indicador", "Valor"], [
+      ["Data do backup", excelDate(todayInput())],
+      ["Clientes cadastradas", data.clients.length],
+      ["Atendimentos cadastrados", data.appointments.length],
+      ["Receita prevista", revenue],
+      ["Valor recebido", received],
+      ["Valor pendente", pending],
+      ["Custos dos atendimentos", serviceCosts],
+      ["Gastos registrados", expenses],
+      ["Lucro estimado", revenue - serviceCosts - expenses],
+      ["Meta mensal", data.settings.monthlyGoalCents / 100],
+      ["Percentual de reserva", data.settings.reservePercent / 100],
+    ], [30, 22]);
+    summary.getCell("B5").numFmt = "dd/mm/yyyy";
+    for (let rowNumber = 8; rowNumber <= 14; rowNumber += 1) summary.getCell(rowNumber, 2).numFmt = currencyFormat;
+    summary.getCell("B15").numFmt = "0%";
+    for (let rowNumber = 5; rowNumber <= 15; rowNumber += 1) {
+      if (rowNumber % 2 === 0) summary.getRow(rowNumber).eachCell((cell) => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: brandLight } }; });
+    }
+
+    addDataSheet("Clientes", "Cadastro e informações de contato.", ["Nome", "Telefone", "Observações", "Cadastro"], data.clients.map((item) => [item.name, item.phone, item.notes, excelDate(item.createdAt)]), [28, 20, 48, 15], [4]);
+    addDataSheet("Atendimentos", "Agenda, situação financeira e custos de cada atendimento.", ["Data", "Horário", "Status", "Cliente", "Serviços", "Valor", "Recebido", "Pendente", "Custo", "Lucro"], data.appointments.map((item) => [excelDate(item.serviceDate), item.serviceTime, APPOINTMENT_STATUS[item.status], item.clientName, item.service, item.amountCents / 100, item.paidCents / 100, item.pendingCents / 100, item.totalCostCents / 100, item.profitCents / 100]), [14, 12, 14, 26, 34, 16, 16, 16, 16, 16], [1], [6, 7, 8, 9, 10]);
+    addDataSheet("Pagamentos", "Sinais, pagamentos parciais e quitações.", ["Data", "Cliente", "Tipo", "Valor", "Observação"], data.appointments.flatMap((item) => item.payments.map((payment) => [excelDate(payment.paidAt), item.clientName, PAYMENT_KIND[payment.kind], payment.amountCents / 100, payment.note])), [14, 26, 22, 16, 40], [1], [4]);
+    addDataSheet("Gastos", "Despesas registradas no Studio em Dia.", ["Data", "Descrição", "Categoria", "Valor"], data.expenses.map((item) => [excelDate(item.expenseDate), item.description, item.category, item.amountCents / 100]), [14, 34, 22, 16], [1], [4]);
+    addDataSheet("Produtos", "Produtos cadastrados e custo estimado por uso.", ["Produto", "Preço de compra", "Quantidade", "Unidade", "Uso médio", "Custo por uso"], data.products.map((item) => [item.name, item.purchasePriceCents / 100, item.totalAmount, item.unit, item.usePerService, item.costPerUseCents / 100]), [30, 18, 16, 14, 16, 18], [], [2, 6]);
+    addDataSheet("Configurações", "Configurações financeiras salvas no sistema.", ["Configuração", "Valor"], [["Meta mensal", data.settings.monthlyGoalCents / 100], ["Percentual de reserva", data.settings.reservePercent / 100]], [30, 20]);
+    workbook.getWorksheet("Configurações")!.getCell("B5").numFmt = currencyFormat;
+    workbook.getWorksheet("Configurações")!.getCell("B6").numFmt = "0%";
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([new Uint8Array(buffer)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `studio-em-dia-backup-${todayInput()}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast.success("Backup em Excel baixado com sucesso.", { id: toastId });
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "Não foi possível gerar o backup em Excel.", { id: toastId });
+  }
 }
 
 export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; onSignOut: () => void }) {
@@ -462,7 +538,7 @@ function SettingsDialog({ open, onOpenChange, data, onSaved }: { open: boolean; 
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="form-dialog form-dialog--small"><DialogHeader><DialogTitle>Meta e reserva</DialogTitle><DialogDescription>Você pode mudar esses valores quando quiser.</DialogDescription></DialogHeader><form onSubmit={submit} className="form-grid">
     <Field id="monthlyGoal" label="Meta de faturamento mensal"><div className="money-input"><span>R$</span><input id="monthlyGoal" name="monthlyGoal" inputMode="decimal" required defaultValue={(data.settings.monthlyGoalCents / 100).toFixed(2).replace(".", ",")} /></div></Field>
     <Field id="reservePercent" label="Porcentagem para reserva" hint="Ex.: 10 significa guardar 10% do faturamento"><div className="percent-input"><input id="reservePercent" name="reservePercent" type="number" min="0" max="100" step="0.5" defaultValue={data.settings.reservePercent} required /><span>%</span></div></Field>
-    <div className="backup-box"><div><strong>Backup dos dados</strong><span>Baixe clientes, atendimentos, pagamentos, gastos, produtos e configurações em CSV.</span></div><Button type="button" variant="outline" onClick={() => downloadBackup(data)}><Download /> Exportar backup</Button></div>
+    <div className="backup-box"><div><strong>Backup dos dados</strong><span>Baixe um arquivo Excel organizado em abas, com resumo, clientes, atendimentos, pagamentos, gastos, produtos e configurações.</span></div><Button type="button" variant="outline" onClick={() => void downloadBackup(data)}><Download /> Exportar Excel</Button></div>
     <DialogFooter className="form-footer"><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button><Button type="submit" disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : <Target />} Salvar preferências</Button></DialogFooter>
   </form></DialogContent></Dialog>;
 }
