@@ -114,6 +114,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .month-switcher svg { width: 17px; }
 .primary-action, .secondary-action { min-height: 44px; border-radius: 13px !important; padding-inline: 17px !important; background: #9d2857 !important; box-shadow: 0 9px 22px rgb(157 40 87 / 20%); font-weight: 700 !important; }
 .primary-action:hover, .secondary-action:hover { background: #842148 !important; }
+.report-action { min-height: 44px; border-radius: 13px !important; color: #7d2449 !important; background: #fff !important; font-weight: 700 !important; }
+.report-action:hover { background: #f9edf2 !important; }
 .page-content { display: flex; flex-direction: column; gap: 22px; padding-top: 30px; }
 
 .summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
@@ -322,6 +324,8 @@ input.field-control { padding: 0 13px; }
   .month-switcher button:nth-child(2) { display: none; }
   .primary-action { width: 42px; min-width: 42px !important; height: 42px; overflow: hidden; padding: 0 !important; font-size: 0; }
   .primary-action svg { width: 20px; height: 20px; }
+  .report-action { width: 42px; min-width: 42px !important; height: 42px; overflow: hidden; padding: 0 !important; font-size: 0; }
+  .report-action svg { width: 19px; height: 19px; }
   .topbar-logout { display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid #dedde2; border-radius: 13px; color: #6e6974; background: #fff; }
   .topbar-logout svg { width: 18px; }
   .page-content { gap: 15px; padding-top: 18px; }
