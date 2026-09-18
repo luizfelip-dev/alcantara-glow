@@ -354,7 +354,7 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
   return (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="app-shell">
       <aside className="sidebar">
-        <div className="brand-block"><span className="brand-mark" aria-hidden="true">SD</span><div><p className="brand-name">Studio em Dia</p><p className="brand-subtitle">Gestão financeira para maquiadoras</p></div></div>
+        <div className="brand-block"><img className="brand-logo" src="./studio-em-dia-logo.jpeg" alt="Studio em Dia — Gestão financeira para maquiadoras" /></div>
         <TabsList className="main-nav" aria-label="Navegação principal">
           <TabsTrigger value="inicio"><LayoutDashboard /><span>Início</span></TabsTrigger>
           <TabsTrigger value="clientes"><Users /><span>Clientes</span></TabsTrigger>
@@ -367,7 +367,7 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
 
       <main className="workspace">
         <header className="topbar">
-          <div><p className="eyebrow">Visão do mês</p><h1>{monthName.format(selectedMonthDate)}</h1></div>
+          <div><img className="mobile-brand-logo" src="./studio-em-dia-logo.jpeg" alt="Studio em Dia" /><p className="eyebrow">Visão do mês</p><h1>{monthName.format(selectedMonthDate)}</h1></div>
           <div className="topbar-actions">
             <div className="month-switcher" aria-label="Escolher mês"><button type="button" onClick={() => moveMonth(-1)} aria-label="Mês anterior"><ChevronLeft /></button><button type="button" onClick={() => setSelectedMonth(monthKey())}>Hoje</button><button type="button" onClick={() => moveMonth(1)} aria-label="Próximo mês"><ChevronRight /></button></div>
             <Button className="report-action" variant="outline" onClick={printMonthlyReport}><Printer /> Relatório</Button><Button className="primary-action" onClick={() => setAppointmentOpen(true)}><Plus /> Novo atendimento</Button><button className="topbar-logout" type="button" onClick={onSignOut} aria-label="Sair da conta"><LogOut /></button>

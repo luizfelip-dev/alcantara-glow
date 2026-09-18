@@ -48,7 +48,7 @@ function Login() {
   };
 
   return <main className="auth-shell"><section className="auth-card">
-    <div className="auth-brand"><span className="auth-mark">SD</span><div><strong>Studio em Dia</strong><span>Gestão financeira para maquiadoras</span></div></div>
+    <div className="auth-brand"><img className="auth-logo" src="./studio-em-dia-logo.jpeg" alt="Studio em Dia — Gestão financeira para maquiadoras" /></div>
     <div className="auth-heading"><span><LockKeyhole /> Acesso protegido</span><h1>{mode === "login" ? "Entrar no studio" : "Criar primeiro acesso"}</h1><p>Use a mesma conta no celular e no computador.</p></div>
     <form className="auth-form" onSubmit={submit}>
       <label htmlFor="auth-email">E-mail</label><input id="auth-email" name="email" type="email" autoComplete="email" required placeholder="studio@email.com" />
@@ -61,5 +61,5 @@ function Login() {
 }
 
 function SetupNotice() {
-  return <main className="auth-shell"><section className="auth-card"><div className="auth-brand"><span className="auth-mark">SD</span><div><strong>Studio em Dia</strong><span>Gestão financeira para maquiadoras</span></div></div><div className="auth-heading"><h1>Banco ainda não conectado</h1><p>Configure o projeto do Supabase para liberar o acesso.</p></div></section></main>;
+  return <main className="auth-shell"><section className="auth-card"><div className="auth-brand"><img className="auth-logo" src="./studio-em-dia-logo.jpeg" alt="Studio em Dia — Gestão financeira para maquiadoras" /></div><div className="auth-heading"><h1>Banco ainda não conectado</h1><p>Configure o projeto do Supabase para liberar o acesso.</p></div></section></main>;
 }
