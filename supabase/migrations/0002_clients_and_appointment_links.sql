@@ -14,6 +14,20 @@ alter table public.appointments
 create index clients_user_name_idx on public.clients (user_id, name);
 create index appointments_user_client_idx on public.appointments (user_id, client_id);
 
+insert into public.clients (user_id, name)
+select
+  appointments.user_id,
+  min(trim(appointments.client_name))
+from public.appointments
+group by appointments.user_id, lower(trim(appointments.client_name));
+
+update public.appointments
+set client_id = clients.id
+from public.clients
+where appointments.client_id is null
+  and clients.user_id = appointments.user_id
+  and lower(trim(clients.name)) = lower(trim(appointments.client_name));
+
 alter table public.clients enable row level security;
 
 create policy clients_select_own on public.clients
