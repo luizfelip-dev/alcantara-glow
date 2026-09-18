@@ -55,6 +55,17 @@ function money(value: number) { return brl.format(value / 100); }
 function todayInput() { const now = new Date(); const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000); return local.toISOString().slice(0, 10); }
 function monthKey(date = new Date()) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`; }
 function parseDate(value: string) { return new Date(`${value}T12:00:00`); }
+function appointmentDateTime(appointment: Appointment) { return new Date(`${appointment.serviceDate}T${appointment.serviceTime || "23:59"}:00`); }
+function upcomingLabel(appointment: Appointment) {
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const date = parseDate(appointment.serviceDate);
+  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const days = Math.round((target.getTime() - start.getTime()) / 86_400_000);
+  if (days === 0) return "Hoje";
+  if (days === 1) return "Amanhã";
+  return `Em ${days} dias`;
+}
 
 function calendarDateTime(date: string, time: string, addMinutes = 0) {
   const [year, month, day] = date.split("-").map(Number);
@@ -287,6 +298,11 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
 
   const monthAppointments = useMemo(() => data?.appointments.filter((item) => item.serviceDate.startsWith(selectedMonth)) ?? [], [data, selectedMonth]);
   const monthExpenses = useMemo(() => data?.expenses.filter((item) => item.expenseDate.startsWith(selectedMonth)) ?? [], [data, selectedMonth]);
+  const upcomingAppointments = useMemo(() => {
+    const now = new Date();
+    const limit = new Date(now.getTime() + 7 * 86_400_000);
+    return (data?.appointments ?? []).filter((item) => (item.status === "scheduled" || item.status === "confirmed") && appointmentDateTime(item) >= now && appointmentDateTime(item) <= limit).sort((first, second) => appointmentDateTime(first).getTime() - appointmentDateTime(second).getTime());
+  }, [data]);
   const totals = useMemo(() => {
     const activeAppointments = monthAppointments.filter((item) => item.status !== "cancelled");
     const revenue = activeAppointments.reduce((sum, item) => sum + item.amountCents, 0);
@@ -378,6 +394,11 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
                 <strong className="reserve-value">{money(totals.reserve)}</strong><p>Separado automaticamente do valor recebido neste mês.</p>
                 <div className="available-balance"><span>Saldo após a reserva</span><strong>{money(totals.available)}</strong></div>
               </article>
+            </section>
+            <section className="panel upcoming-panel">
+              <div className="panel-heading"><div><span className="section-kicker"><Clock3 /> Próximos sete dias</span><h2>Próximos atendimentos</h2></div>{upcomingAppointments.length ? <span className="upcoming-count">{upcomingAppointments.length}</span> : null}</div>
+              {upcomingAppointments.length ? <div className="upcoming-list">{upcomingAppointments.slice(0, 5).map((item) => <div className="upcoming-row" key={item.id}><div className="upcoming-date"><strong>{upcomingLabel(item)}</strong><span>{fullDate.format(parseDate(item.serviceDate))} às {item.serviceTime}</span></div><div className="upcoming-main"><strong>{item.clientName}</strong><span>{item.service}</span></div><span className={`status-text status-text--${item.status}`}>{APPOINTMENT_STATUS[item.status]}</span></div>)}</div>
+              : <p className="upcoming-empty">Nenhum atendimento agendado para os próximos sete dias.</p>}
             </section>
             <section className="panel recent-panel">
               <div className="panel-heading"><div><span className="section-kicker">Movimentação recente</span><h2>Últimos atendimentos</h2></div>{monthAppointments.length > 0 ? <button type="button" className="text-button" onClick={() => setActiveTab("atendimentos")}>Ver todos</button> : null}</div>
