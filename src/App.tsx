@@ -2,6 +2,7 @@ import { FormEvent, lazy, Suspense, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { Loader2, LockKeyhole, Sparkles } from "lucide-react";
 import { supabase, supabaseConfigured } from "../lib/supabase";
+import { StudioBrand } from "./studio-brand";
 
 const StudioDashboard = lazy(() => import("../app/studio-dashboard").then((module) => ({ default: module.StudioDashboard })));
 const isTestEnvironment = import.meta.env.VITE_APP_ENV === "test";
@@ -50,19 +51,24 @@ function Login() {
   };
 
   return <main className="auth-shell"><section className="auth-card">
-    {isTestEnvironment ? <span className="test-badge">V2 · Ambiente de testes</span> : null}
-    <div className="auth-brand"><img className="auth-logo" src="./studio-em-dia-logo.jpeg" alt="Studio em Dia — Gestão financeira para maquiadoras" /></div>
-    <div className="auth-heading"><span><LockKeyhole /> Acesso protegido</span><h1>{mode === "login" ? "Entrar no studio" : "Criar primeiro acesso"}</h1><p>Use a mesma conta no celular e no computador.</p></div>
-    <form className="auth-form" onSubmit={submit}>
-      <label htmlFor="auth-email">E-mail</label><input id="auth-email" name="email" type="email" autoComplete="email" required placeholder="studio@email.com" />
-      <label htmlFor="auth-password">Senha</label><input id="auth-password" name="password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={6} required placeholder="Mínimo de 6 caracteres" />
-      {error ? <p className="auth-error" role="alert">{error}</p> : null}{message ? <p className="auth-success" role="status">{message}</p> : null}
-      <button className="auth-submit" type="submit" disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : <Sparkles />}{mode === "login" ? "Entrar" : "Criar conta"}</button>
-    </form>
-    <button className="auth-switch" type="button" onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(""); setMessage(""); }}>{mode === "login" ? "Ainda não tem acesso? Criar conta" : "Já tem uma conta? Entrar"}</button>
+    <div className="auth-identity">
+      <StudioBrand inverted />
+      <div className="auth-identity-copy"><strong>Seu studio organizado, todos os dias.</strong><p>Atendimentos, recebimentos e metas em um só lugar.</p></div>
+    </div>
+    <div className="auth-panel">
+      {isTestEnvironment ? <span className="test-badge">V2 · Ambiente de testes</span> : null}
+      <div className="auth-heading"><span><LockKeyhole /> Acesso protegido</span><h1>{mode === "login" ? "Entrar no studio" : "Criar primeiro acesso"}</h1><p>Use a mesma conta no celular e no computador.</p></div>
+      <form className="auth-form" onSubmit={submit}>
+        <label htmlFor="auth-email">E-mail</label><input id="auth-email" name="email" type="email" autoComplete="email" required placeholder="studio@email.com" />
+        <label htmlFor="auth-password">Senha</label><input id="auth-password" name="password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={6} required placeholder="Mínimo de 6 caracteres" />
+        {error ? <p className="auth-error" role="alert">{error}</p> : null}{message ? <p className="auth-success" role="status">{message}</p> : null}
+        <button className="auth-submit" type="submit" disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : <Sparkles />}{mode === "login" ? "Entrar" : "Criar conta"}</button>
+      </form>
+      <button className="auth-switch" type="button" onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(""); setMessage(""); }}>{mode === "login" ? "Ainda não tem acesso? Criar conta" : "Já tem uma conta? Entrar"}</button>
+    </div>
   </section></main>;
 }
 
 function SetupNotice() {
-  return <main className="auth-shell"><section className="auth-card"><div className="auth-brand"><img className="auth-logo" src="./studio-em-dia-logo.jpeg" alt="Studio em Dia — Gestão financeira para maquiadoras" /></div><div className="auth-heading"><h1>Banco ainda não conectado</h1><p>Configure o projeto do Supabase para liberar o acesso.</p></div></section></main>;
+  return <main className="auth-shell"><section className="setup-card"><StudioBrand /><div className="auth-heading"><h1>Banco ainda não conectado</h1><p>Configure o projeto do Supabase para liberar o acesso.</p></div></section></main>;
 }
