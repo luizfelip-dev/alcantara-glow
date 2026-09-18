@@ -31,7 +31,9 @@ import { getStudioData, studioRequest } from "@/lib/studio-api";
 type Product = { id: number; name: string; purchasePriceCents: number; totalAmount: number; unit: string; usePerService: number; costPerUseCents: number };
 type Client = { id: number; name: string; phone: string; notes: string; createdAt: string };
 type AppointmentStatus = "scheduled" | "confirmed" | "completed" | "cancelled";
-type Appointment = { id: number; clientId: number | null; clientName: string; service: string; serviceDate: string; serviceTime: string; status: AppointmentStatus; amountCents: number; productCostCents: number; extraCostCents: number; paymentFeeCents: number; totalCostCents: number; profitCents: number };
+type PaymentKind = "deposit" | "partial" | "final" | "full";
+type Payment = { id: number; amountCents: number; kind: PaymentKind; paidAt: string; note: string };
+type Appointment = { id: number; clientId: number | null; clientName: string; service: string; serviceDate: string; serviceTime: string; status: AppointmentStatus; amountCents: number; productCostCents: number; extraCostCents: number; paymentFeeCents: number; totalCostCents: number; profitCents: number; paidCents: number; pendingCents: number; payments: Payment[] };
 type Expense = { id: number; description: string; category: string; expenseDate: string; amountCents: number };
 type StudioSettings = { monthlyGoalCents: number; reservePercent: number };
 type StudioData = { clients: Client[]; products: Product[]; appointments: Appointment[]; expenses: Expense[]; settings: StudioSettings };
@@ -42,6 +44,7 @@ const monthName = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numer
 const fullDate = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" });
 const SERVICES = ["Maquiagem express", "Maquiagem social", "Penteado simples"] as const;
 const APPOINTMENT_STATUS: Record<AppointmentStatus, string> = { scheduled: "Agendado", confirmed: "Confirmado", completed: "Concluído", cancelled: "Cancelado" };
+const PAYMENT_KIND: Record<PaymentKind, string> = { deposit: "Sinal", partial: "Pagamento parcial", final: "Pagamento final", full: "Pagamento integral" };
 
 function cents(value: string) {
   const normalized = value.trim().replace(/\./g, "").replace(",", ".");
@@ -72,14 +75,15 @@ function decimalFromCents(value: number) {
 }
 
 function downloadBackup(data: StudioData) {
-  const header = ["tipo", "data", "horario", "status", "nome", "detalhe", "valor_reais", "custo_reais", "lucro_reais", "quantidade", "unidade", "uso_medio", "telefone", "observacoes"];
+  const header = ["tipo", "data", "horario", "status", "nome", "detalhe", "valor_reais", "recebido_reais", "pendente_reais", "custo_reais", "lucro_reais", "quantidade", "unidade", "uso_medio", "telefone", "observacoes"];
   const rows: Array<Array<string | number>> = [
-    ...data.clients.map((item) => ["Cliente", item.createdAt.slice(0, 10), "", "", item.name, "", "", "", "", "", "", "", item.phone, item.notes]),
-    ...data.appointments.map((item) => ["Atendimento", item.serviceDate, item.serviceTime, APPOINTMENT_STATUS[item.status], item.clientName, item.service, decimalFromCents(item.amountCents), decimalFromCents(item.totalCostCents), decimalFromCents(item.profitCents), "", "", "", "", ""]),
-    ...data.expenses.map((item) => ["Gasto", item.expenseDate, "", "", item.description, item.category, decimalFromCents(item.amountCents), "", "", "", "", "", "", ""]),
-    ...data.products.map((item) => ["Produto", "", "", "", item.name, "", decimalFromCents(item.purchasePriceCents), decimalFromCents(item.costPerUseCents), "", item.totalAmount, item.unit, item.usePerService, "", ""]),
-    ["Configuração", "", "", "", "Meta mensal", "", decimalFromCents(data.settings.monthlyGoalCents), "", "", "", "", "", "", ""],
-    ["Configuração", "", "", "", "Reserva", `${data.settings.reservePercent}%`, "", "", "", "", "", "", "", ""],
+    ...data.clients.map((item) => ["Cliente", item.createdAt.slice(0, 10), "", "", item.name, "", "", "", "", "", "", "", "", "", item.phone, item.notes]),
+    ...data.appointments.map((item) => ["Atendimento", item.serviceDate, item.serviceTime, APPOINTMENT_STATUS[item.status], item.clientName, item.service, decimalFromCents(item.amountCents), decimalFromCents(item.paidCents), decimalFromCents(item.pendingCents), decimalFromCents(item.totalCostCents), decimalFromCents(item.profitCents), "", "", "", "", ""]),
+    ...data.appointments.flatMap((item) => item.payments.map((payment) => ["Pagamento", payment.paidAt, "", PAYMENT_KIND[payment.kind], item.clientName, payment.note, decimalFromCents(payment.amountCents), decimalFromCents(payment.amountCents), "", "", "", "", "", "", "", ""])),
+    ...data.expenses.map((item) => ["Gasto", item.expenseDate, "", "", item.description, item.category, decimalFromCents(item.amountCents), "", "", "", "", "", "", "", "", ""]),
+    ...data.products.map((item) => ["Produto", "", "", "", item.name, "", decimalFromCents(item.purchasePriceCents), "", "", decimalFromCents(item.costPerUseCents), "", item.totalAmount, item.unit, item.usePerService, "", ""]),
+    ["Configuração", "", "", "", "Meta mensal", "", decimalFromCents(data.settings.monthlyGoalCents), "", "", "", "", "", "", "", "", ""],
+    ["Configuração", "", "", "", "Reserva", `${data.settings.reservePercent}%`, "", "", "", "", "", "", "", "", "", ""],
   ];
   const csv = [header, ...rows].map((row) => row.map(csvCell).join(";")).join("\r\n");
   const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
@@ -101,6 +105,7 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
   const [activeTab, setActiveTab] = useState("inicio");
   const [selectedMonth, setSelectedMonth] = useState(monthKey());
   const [appointmentOpen, setAppointmentOpen] = useState(false);
+  const [paymentAppointment, setPaymentAppointment] = useState<Appointment | null>(null);
   const [clientOpen, setClientOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [expenseOpen, setExpenseOpen] = useState(false);
@@ -130,17 +135,19 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
   const totals = useMemo(() => {
     const activeAppointments = monthAppointments.filter((item) => item.status !== "cancelled");
     const revenue = activeAppointments.reduce((sum, item) => sum + item.amountCents, 0);
+    const received = monthAppointments.reduce((sum, item) => sum + item.paidCents, 0);
+    const pending = activeAppointments.reduce((sum, item) => sum + item.pendingCents, 0);
     const serviceCosts = activeAppointments.reduce((sum, item) => sum + item.totalCostCents, 0);
     const expenses = monthExpenses.reduce((sum, item) => sum + item.amountCents, 0);
     const profit = revenue - serviceCosts - expenses;
-    const reserve = Math.max(0, Math.round(revenue * ((data?.settings.reservePercent ?? 10) / 100)));
-    return { revenue, serviceCosts, expenses, profit, reserve, available: profit - reserve, ticket: activeAppointments.length ? Math.round(revenue / activeAppointments.length) : 0 };
+    const reserve = Math.max(0, Math.round(received * ((data?.settings.reservePercent ?? 10) / 100)));
+    return { revenue, received, pending, serviceCosts, expenses, profit, reserve, available: received - serviceCosts - expenses - reserve };
   }, [monthAppointments, monthExpenses, data?.settings.reservePercent]);
   const selectedMonthDate = useMemo(() => { const [year, month] = selectedMonth.split("-").map(Number); return new Date(year, month - 1, 1); }, [selectedMonth]);
   const moveMonth = (difference: number) => { const next = new Date(selectedMonthDate); next.setMonth(next.getMonth() + difference); setSelectedMonth(monthKey(next)); };
   const goal = data?.settings.monthlyGoalCents ?? 500000;
-  const goalPercent = goal > 0 ? Math.min(100, Math.round((totals.revenue / goal) * 100)) : 0;
-  const goalRemaining = Math.max(0, goal - totals.revenue);
+  const goalPercent = goal > 0 ? Math.min(100, Math.round((totals.received / goal) * 100)) : 0;
+  const goalRemaining = Math.max(0, goal - totals.received);
 
   const deleteItem = async () => {
     if (!deleteTarget) return;
@@ -184,21 +191,21 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
         : loading ? <LoadingView /> : <>
           <TabsContent value="inicio" className="page-content">
             <section className="summary-grid" aria-label="Resumo financeiro">
-              <article className="summary-card summary-card--hero"><div className="summary-icon"><CircleDollarSign /></div><p>Faturamento</p><strong>{money(totals.revenue)}</strong><span>{monthAppointments.filter((item) => item.status !== "cancelled").length} atendimentos ativos</span></article>
-              <article className="summary-card"><div className="summary-icon summary-icon--green"><ArrowUpRight /></div><p>Lucro do mês</p><strong>{money(totals.profit)}</strong><span>já descontando todos os gastos</span></article>
+              <article className="summary-card summary-card--hero"><div className="summary-icon"><CircleDollarSign /></div><p>Recebido</p><strong>{money(totals.received)}</strong><span>sinais e pagamentos registrados</span></article>
+              <article className="summary-card"><div className="summary-icon summary-icon--blue"><WalletCards /></div><p>A receber</p><strong>{money(totals.pending)}</strong><span>saldo pendente dos atendimentos ativos</span></article>
+              <article className="summary-card"><div className="summary-icon summary-icon--green"><ArrowUpRight /></div><p>Lucro previsto</p><strong>{money(totals.profit)}</strong><span>com base nos atendimentos ativos</span></article>
               <article className="summary-card"><div className="summary-icon summary-icon--orange"><ArrowDownRight /></div><p>Gastos totais</p><strong>{money(totals.serviceCosts + totals.expenses)}</strong><span>produtos, taxas e despesas</span></article>
-              <article className="summary-card"><div className="summary-icon summary-icon--blue"><WalletCards /></div><p>Ticket médio</p><strong>{money(totals.ticket)}</strong><span>valor médio por atendimento</span></article>
             </section>
             <section className="dashboard-grid">
               <article className="panel goal-panel">
                 <div className="panel-heading"><div><span className="section-kicker"><Target /> Meta mensal</span><h2>{goalPercent}% alcançado</h2></div><button type="button" className="text-button" onClick={() => setSettingsOpen(true)}>Alterar</button></div>
                 <Progress value={goalPercent} aria-label={`${goalPercent}% da meta alcançada`} />
-                <div className="goal-values"><span><strong>{money(totals.revenue)}</strong> realizados</span><span>Meta: <strong>{money(goal)}</strong></span></div>
+                <div className="goal-values"><span><strong>{money(totals.received)}</strong> recebidos</span><span>Meta: <strong>{money(goal)}</strong></span></div>
                 <p className="goal-message">{goalRemaining > 0 ? `Faltam ${money(goalRemaining)} para chegar à meta.` : "Meta alcançada. Parabéns pelo resultado!"}</p>
               </article>
               <article className="panel reserve-panel">
                 <div className="panel-heading"><span className="section-kicker"><PiggyBank /> Reserva</span><span className="reserve-percent">{data?.settings.reservePercent ?? 10}%</span></div>
-                <strong className="reserve-value">{money(totals.reserve)}</strong><p>Separado automaticamente do faturamento deste mês.</p>
+                <strong className="reserve-value">{money(totals.reserve)}</strong><p>Separado automaticamente do valor recebido neste mês.</p>
                 <div className="available-balance"><span>Saldo após a reserva</span><strong>{money(totals.available)}</strong></div>
               </article>
             </section>
@@ -211,7 +218,7 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
 
           <TabsContent value="atendimentos" className="page-content">
             <PageHeading title="Agenda de atendimentos" description="Acompanhe horários e atualize cada atendimento até a conclusão." action="Novo atendimento" onAction={() => setAppointmentOpen(true)} />
-            <section className="panel list-panel">{monthAppointments.length ? <div className="data-list">{monthAppointments.map((item) => <article className={`data-row appointment-row appointment-row--${item.status}`} key={item.id}><div className="data-date"><strong>{parseDate(item.serviceDate).getDate()}</strong><span>{fullDate.format(parseDate(item.serviceDate)).split(" ")[2]}</span></div><div className="data-primary"><strong>{item.clientName}</strong><span>{item.service}</span><small><Clock3 /> {item.serviceTime || "Horário não informado"}</small></div><div className="data-metric"><span>Valor</span><strong>{money(item.amountCents)}</strong></div><label className="status-control"><span>Status</span><select aria-label={`Status do atendimento de ${item.clientName}`} value={item.status} disabled={updatingAppointmentId === item.id} onChange={(event) => void updateAppointmentStatus(item.id, event.target.value as AppointmentStatus)}>{Object.entries(APPOINTMENT_STATUS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><div className="data-metric data-metric--positive"><span>Lucro</span><strong>{money(item.profitCents)}</strong></div><button className="icon-button" type="button" aria-label={`Excluir atendimento de ${item.clientName}`} onClick={() => setDeleteTarget({ type: "appointments", id: item.id, name: item.clientName })}><Trash2 /></button></article>)}</div>
+            <section className="panel list-panel">{monthAppointments.length ? <div className="data-list">{monthAppointments.map((item) => <article className={`data-row appointment-row appointment-row--${item.status}`} key={item.id}><div className="data-date"><strong>{parseDate(item.serviceDate).getDate()}</strong><span>{fullDate.format(parseDate(item.serviceDate)).split(" ")[2]}</span></div><div className="data-primary"><strong>{item.clientName}</strong><span>{item.service}</span><small><Clock3 /> {item.serviceTime || "Horário não informado"}</small></div><div className="data-metric"><span>Recebido</span><strong>{money(item.paidCents)}</strong></div><label className="status-control"><span>Status</span><select aria-label={`Status do atendimento de ${item.clientName}`} value={item.status} disabled={updatingAppointmentId === item.id} onChange={(event) => void updateAppointmentStatus(item.id, event.target.value as AppointmentStatus)}>{Object.entries(APPOINTMENT_STATUS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><div className={`data-metric ${item.pendingCents > 0 ? "data-metric--pending" : "data-metric--paid"}`}><span>Pendente</span><strong>{money(item.pendingCents)}</strong></div><div className="row-actions"><button className="icon-button payment-button" type="button" disabled={item.pendingCents === 0} aria-label={`Registrar pagamento de ${item.clientName}`} onClick={() => setPaymentAppointment(item)}><Banknote /></button><button className="icon-button" type="button" aria-label={`Excluir atendimento de ${item.clientName}`} onClick={() => setDeleteTarget({ type: "appointments", id: item.id, name: item.clientName })}><Trash2 /></button></div></article>)}</div>
             : <EmptyState icon={<CalendarDays />} title="Nenhum atendimento neste mês" text="Quando você cadastrar um atendimento, ele aparecerá aqui." action="Cadastrar atendimento" onAction={() => setAppointmentOpen(true)} />}</section>
           </TabsContent>
 
@@ -245,6 +252,7 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
       </main>
 
       <AppointmentDialog open={appointmentOpen} onOpenChange={setAppointmentOpen} clients={data?.clients ?? []} products={data?.products ?? []} onSaved={loadData} onAddClient={() => { setEditingClient(null); setClientOpen(true); }} />
+      <PaymentDialog appointment={paymentAppointment} onOpenChange={(open) => { if (!open) setPaymentAppointment(null); }} onSaved={loadData} />
       <ClientDialog open={clientOpen} onOpenChange={setClientOpen} client={editingClient} onSaved={loadData} />
       <ExpenseDialog open={expenseOpen} onOpenChange={setExpenseOpen} onSaved={loadData} />
       <ProductDialog open={productOpen} onOpenChange={setProductOpen} onSaved={loadData} />
@@ -258,6 +266,32 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
 function PageHeading({ title, description, action, onAction }: { title: string; description: string; action: string; onAction: () => void }) { return <div className="page-heading"><div><h2>{title}</h2><p>{description}</p></div><Button className="secondary-action" onClick={onAction}><Plus /> {action}</Button></div>; }
 function EmptyState({ icon, title, text, action, onAction }: { icon: React.ReactNode; title: string; text: string; action: string; onAction: () => void }) { return <div className="empty-state"><div className="empty-icon">{icon}</div><strong>{title}</strong><p>{text}</p><Button variant="outline" onClick={onAction}><Plus /> {action}</Button></div>; }
 function LoadingView() { return <div className="page-content loading-view" aria-label="Carregando"><div className="summary-grid">{[0,1,2,3].map((item) => <Skeleton className="h-40 rounded-[24px]" key={item} />)}</div><div className="dashboard-grid"><Skeleton className="h-64 rounded-[24px]" /><Skeleton className="h-64 rounded-[24px]" /></div><Skeleton className="h-72 rounded-[24px]" /></div>; }
+
+function PaymentDialog({ appointment, onOpenChange, onSaved }: { appointment: Appointment | null; onOpenChange: (open: boolean) => void; onSaved: () => Promise<void> }) {
+  const [saving, setSaving] = useState(false);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!appointment) return;
+    const form = new FormData(event.currentTarget);
+    setSaving(true);
+    try {
+      await requestJson("/api/payments", { method: "POST", body: JSON.stringify({ appointmentId: appointment.id, amountCents: cents(String(form.get("paymentAmount") ?? "")), kind: form.get("paymentKind"), paidAt: form.get("paidAt"), note: form.get("paymentNote") }) });
+      toast.success("Pagamento registrado.");
+      onOpenChange(false);
+      await onSaved();
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Não foi possível registrar o pagamento."); }
+    finally { setSaving(false); }
+  };
+  return <Dialog open={Boolean(appointment)} onOpenChange={onOpenChange}><DialogContent className="form-dialog form-dialog--small"><DialogHeader><DialogTitle>Registrar pagamento</DialogTitle><DialogDescription>{appointment ? `${appointment.clientName} · ${appointment.service}` : ""}</DialogDescription></DialogHeader>{appointment ? <form key={appointment.id} onSubmit={submit} className="form-grid form-grid--single">
+    <div className="payment-summary"><span><small>Valor total</small><strong>{money(appointment.amountCents)}</strong></span><span><small>Recebido</small><strong>{money(appointment.paidCents)}</strong></span><span className="payment-summary--pending"><small>Pendente</small><strong>{money(appointment.pendingCents)}</strong></span></div>
+    <Field id="paymentAmount" label="Valor recebido"><div className="money-input"><span>R$</span><input id="paymentAmount" name="paymentAmount" inputMode="decimal" required placeholder="0,00" /></div></Field>
+    <Field id="paymentKind" label="Tipo"><Select name="paymentKind" defaultValue={appointment.paidCents === 0 ? "deposit" : "partial"}><SelectTrigger id="paymentKind" className="field-control"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="deposit">Sinal</SelectItem><SelectItem value="partial">Pagamento parcial</SelectItem><SelectItem value="final">Pagamento final</SelectItem></SelectContent></Select></Field>
+    <Field id="paidAt" label="Data do pagamento"><input className="field-control" id="paidAt" name="paidAt" type="date" defaultValue={todayInput()} required /></Field>
+    <Field id="paymentNote" label="Observação" hint="Opcional"><input className="field-control" id="paymentNote" name="paymentNote" placeholder="Ex.: Pix" /></Field>
+    {appointment.payments.length ? <div className="payment-history"><strong>Pagamentos anteriores</strong>{appointment.payments.map((payment) => <div key={payment.id}><span>{PAYMENT_KIND[payment.kind]} · {fullDate.format(parseDate(payment.paidAt))}</span><strong>{money(payment.amountCents)}</strong></div>)}</div> : null}
+    <DialogFooter className="form-footer"><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button><Button type="submit" disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : <Banknote />} Salvar pagamento</Button></DialogFooter>
+  </form> : null}</DialogContent></Dialog>;
+}
 
 function ClientDialog({ open, onOpenChange, client, onSaved }: { open: boolean; onOpenChange: (open: boolean) => void; client: Client | null; onSaved: () => Promise<void> }) {
   const [saving, setSaving] = useState(false);
@@ -289,13 +323,14 @@ function ClientDialog({ open, onOpenChange, client, onSaved }: { open: boolean; 
 function AppointmentDialog({ open, onOpenChange, clients, products, onSaved, onAddClient }: { open: boolean; onOpenChange: (open: boolean) => void; clients: Client[]; products: Product[]; onSaved: () => Promise<void>; onAddClient: () => void }) {
   const [selected, setSelected] = useState<number[]>([]); const [selectedServices, setSelectedServices] = useState<string[]>([]); const [saving, setSaving] = useState(false);
   const productCost = products.filter((item) => selected.includes(item.id)).reduce((sum, item) => sum + item.costPerUseCents, 0);
-  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); if (!selectedServices.length) { toast.error("Escolha pelo menos um serviço."); return; } const formElement = event.currentTarget; const form = new FormData(formElement); setSaving(true); try { await requestJson("/api/appointments", { method: "POST", body: JSON.stringify({ clientId: Number(form.get("clientId")), service: selectedServices.join(" + "), serviceDate: form.get("serviceDate"), serviceTime: form.get("serviceTime"), amountCents: cents(String(form.get("amount") ?? "")), extraCostCents: cents(String(form.get("extraCost") ?? "")), paymentFeeCents: cents(String(form.get("paymentFee") ?? "")), productIds: selected }) }); toast.success("Atendimento agendado. O lucro já foi calculado."); formElement.reset(); setSelected([]); setSelectedServices([]); onOpenChange(false); await onSaved(); } catch (error) { toast.error(error instanceof Error ? error.message : "Não foi possível salvar."); } finally { setSaving(false); } };
+  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); if (!selectedServices.length) { toast.error("Escolha pelo menos um serviço."); return; } const formElement = event.currentTarget; const form = new FormData(formElement); setSaving(true); try { await requestJson("/api/appointments", { method: "POST", body: JSON.stringify({ clientId: Number(form.get("clientId")), service: selectedServices.join(" + "), serviceDate: form.get("serviceDate"), serviceTime: form.get("serviceTime"), amountCents: cents(String(form.get("amount") ?? "")), depositCents: cents(String(form.get("deposit") ?? "")), depositPaidAt: todayInput(), extraCostCents: cents(String(form.get("extraCost") ?? "")), paymentFeeCents: cents(String(form.get("paymentFee") ?? "")), productIds: selected }) }); toast.success("Atendimento agendado. Os valores já foram calculados."); formElement.reset(); setSelected([]); setSelectedServices([]); onOpenChange(false); await onSaved(); } catch (error) { toast.error(error instanceof Error ? error.message : "Não foi possível salvar."); } finally { setSaving(false); } };
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="form-dialog"><DialogHeader><DialogTitle>Novo atendimento</DialogTitle><DialogDescription>Preencha o básico. Os cálculos são feitos automaticamente.</DialogDescription></DialogHeader><form onSubmit={submit} className="form-grid">
     <Field id="clientId" label="Cliente"><Select name="clientId" required disabled={!clients.length}><SelectTrigger id="clientId" className="field-control"><SelectValue placeholder={clients.length ? "Selecione a cliente" : "Cadastre uma cliente primeiro"} /></SelectTrigger><SelectContent>{clients.map((client) => <SelectItem key={client.id} value={String(client.id)}>{client.name}</SelectItem>)}</SelectContent></Select>{!clients.length ? <button className="inline-create-button" type="button" onClick={() => { onOpenChange(false); onAddClient(); }}><UserPlus /> Cadastrar cliente agora</button> : null}</Field>
     <div className="product-picker service-picker"><div className="product-picker-heading"><div><strong>Serviços</strong><span>Escolha um ou mais serviços</span></div></div>{SERVICES.map((service) => <label className="product-option service-option" key={service}><Checkbox checked={selectedServices.includes(service)} onCheckedChange={(checked) => setSelectedServices((current) => checked ? [...current, service] : current.filter((item) => item !== service))} /><span>{service}</span></label>)}</div>
     <Field id="serviceDate" label="Data"><input className="field-control" id="serviceDate" name="serviceDate" type="date" defaultValue={todayInput()} required /></Field>
     <Field id="serviceTime" label="Horário"><input className="field-control" id="serviceTime" name="serviceTime" type="time" required /></Field>
     <Field id="amount" label="Valor cobrado"><div className="money-input"><span>R$</span><input id="amount" name="amount" inputMode="decimal" placeholder="180,00" required /></div></Field>
+    <Field id="deposit" label="Sinal recebido" hint="Deixe em branco se ainda não recebeu"><div className="money-input"><span>R$</span><input id="deposit" name="deposit" inputMode="decimal" placeholder="0,00" /></div></Field>
     <Field id="extraCost" label="Outros custos" hint="Ex.: deslocamento ou cílios"><div className="money-input"><span>R$</span><input id="extraCost" name="extraCost" inputMode="decimal" placeholder="0,00" /></div></Field>
     <Field id="paymentFee" label="Taxa de pagamento" hint="Taxa da maquininha, se houver"><div className="money-input"><span>R$</span><input id="paymentFee" name="paymentFee" inputMode="decimal" placeholder="0,00" /></div></Field>
     <div className="product-picker"><div className="product-picker-heading"><div><strong>Produtos usados</strong><span>Marque o que entrou neste atendimento</span></div><strong>{money(productCost)}</strong></div>{products.length ? products.map((product) => <label className="product-option" key={product.id}><Checkbox checked={selected.includes(product.id)} onCheckedChange={(checked) => setSelected((current) => checked ? [...current, product.id] : current.filter((id) => id !== product.id))} /><span>{product.name}</span><strong>{money(product.costPerUseCents)}</strong></label>) : <p className="picker-empty">Nenhum produto cadastrado ainda. Você pode salvar o atendimento mesmo assim.</p>}</div>
@@ -337,7 +372,7 @@ function SettingsDialog({ open, onOpenChange, data, onSaved }: { open: boolean; 
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="form-dialog form-dialog--small"><DialogHeader><DialogTitle>Meta e reserva</DialogTitle><DialogDescription>Você pode mudar esses valores quando quiser.</DialogDescription></DialogHeader><form onSubmit={submit} className="form-grid">
     <Field id="monthlyGoal" label="Meta de faturamento mensal"><div className="money-input"><span>R$</span><input id="monthlyGoal" name="monthlyGoal" inputMode="decimal" required defaultValue={(data.settings.monthlyGoalCents / 100).toFixed(2).replace(".", ",")} /></div></Field>
     <Field id="reservePercent" label="Porcentagem para reserva" hint="Ex.: 10 significa guardar 10% do faturamento"><div className="percent-input"><input id="reservePercent" name="reservePercent" type="number" min="0" max="100" step="0.5" defaultValue={data.settings.reservePercent} required /><span>%</span></div></Field>
-    <div className="backup-box"><div><strong>Backup dos dados</strong><span>Baixe atendimentos, gastos, produtos e configurações em CSV.</span></div><Button type="button" variant="outline" onClick={() => downloadBackup(data)}><Download /> Exportar backup</Button></div>
+    <div className="backup-box"><div><strong>Backup dos dados</strong><span>Baixe clientes, atendimentos, pagamentos, gastos, produtos e configurações em CSV.</span></div><Button type="button" variant="outline" onClick={() => downloadBackup(data)}><Download /> Exportar backup</Button></div>
     <DialogFooter className="form-footer"><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button><Button type="submit" disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : <Target />} Salvar preferências</Button></DialogFooter>
   </form></DialogContent></Dialog>;
 }
