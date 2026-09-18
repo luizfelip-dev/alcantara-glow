@@ -192,7 +192,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .data-primary small svg { width: 13px; }
 .data-metric strong { font-size: .88rem; }
 .data-metric--positive strong { color: #277b59; }
-.appointment-row { position: relative; grid-template-columns: 52px minmax(180px, 1.4fr) repeat(3, minmax(90px, .7fr)) 150px; }
+.appointment-row { position: relative; grid-template-columns: 52px minmax(180px, 1.4fr) repeat(3, minmax(90px, .7fr)) 186px; }
 .appointment-row::before { content: ""; position: absolute; inset: 18px auto 18px -24px; width: 3px; border-radius: 999px; background: #b1adb6; }
 .appointment-row--confirmed::before { background: #3977b8; }
 .appointment-row--completed::before { background: #27805d; }
@@ -214,6 +214,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .payment-button:hover { color: #235d89; background: #edf5fb; }
 .payment-button:disabled { cursor: default; opacity: .3; }
 .payment-button:disabled:hover { color: #aaa7b0; background: transparent; }
+.edit-button { color: #6d6470; }
+.edit-button:hover { color: #4b424f; background: #f2eff3; }
 .calendar-button { color: #8f2752; }
 .calendar-button:hover { color: #752044; background: #f8eaf0; }
 .calendar-button:disabled { cursor: default; opacity: .3; }
@@ -304,6 +306,10 @@ input.field-control { padding: 0 13px; }
 .payment-history > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #efedf0; padding: 11px 14px; }
 .payment-history span { color: #77747e; font-size: .73rem; }
 .payment-history div strong { color: #277b59; font-size: .78rem; }
+.payment-history-row { display: grid !important; grid-template-columns: minmax(0, 1fr) auto auto; }
+.payment-history-actions { display: flex; gap: 2px; }
+.payment-history-actions .icon-button { width: 30px; height: 30px; }
+.payment-history-actions .icon-button svg { width: 15px; }
 .form-footer { grid-column: 1 / -1; margin-top: 5px; }
 .form-footer button { min-height: 42px; border-radius: 12px; }
 .delete-action { background: #bd2b36 !important; }
@@ -312,7 +318,7 @@ input.field-control { padding: 0 13px; }
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .data-row { grid-template-columns: 52px minmax(160px, 1.4fr) repeat(2, minmax(85px, .7fr)) 38px; }
-  .appointment-row { grid-template-columns: 52px minmax(160px, 1.4fr) repeat(2, minmax(85px, .7fr)) 150px; }
+  .appointment-row { grid-template-columns: 52px minmax(160px, 1.4fr) repeat(2, minmax(85px, .7fr)) 186px; }
   .data-row .data-metric:nth-of-type(4) { display: none; }
 }
 
@@ -357,7 +363,7 @@ input.field-control { padding: 0 13px; }
   .secondary-action { width: 43px; min-width: 43px !important; height: 43px; overflow: hidden; padding: 0 !important; font-size: 0; }
   .list-panel { border-radius: 20px; padding: 3px 15px; }
   .data-row, .data-row--expense { grid-template-columns: 44px minmax(0, 1fr) auto 34px; gap: 10px; min-height: 78px; }
-  .appointment-row { grid-template-columns: 44px minmax(0, 1fr) auto 138px; }
+  .appointment-row { grid-template-columns: 44px minmax(0, 1fr) auto 104px; min-height: 98px; }
   .data-row .data-metric:nth-of-type(3), .data-row .data-metric:nth-of-type(4) { display: none; }
   .data-row .data-metric--positive { display: flex !important; }
   .data-row--expense .data-metric { display: flex !important; }
@@ -370,6 +376,7 @@ input.field-control { padding: 0 13px; }
   .client-history { display: none; }
   .client-main p { max-width: 100%; }
   .row-actions .icon-button { width: 34px; }
+  .appointment-row .row-actions { display: grid; grid-template-columns: repeat(3, 34px); align-content: center; }
   .payment-summary { grid-template-columns: 1fr; }
   .data-date { width: 41px; height: 47px; }
   .data-primary { min-width: 0; }
