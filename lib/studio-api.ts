@@ -4,6 +4,8 @@ type ProductRow = { id: number; name: string; purchase_price_cents: number; tota
 type ClientRow = { id: number; name: string; phone: string | null; notes: string | null; created_at: string };
 type AppointmentStatus = "scheduled" | "confirmed" | "completed" | "cancelled";
 type AppointmentRow = { id: number; client_id: number | null; client_name: string; service: string; service_date: string; service_time: string | null; status: AppointmentStatus; amount_cents: number; product_cost_cents: number; extra_cost_cents: number; payment_fee_cents: number };
+type PaymentKind = "deposit" | "partial" | "final" | "full";
+type PaymentRow = { id: number; appointment_id: number; amount_cents: number; kind: PaymentKind; paid_at: string; note: string | null };
 type ExpenseRow = { id: number; description: string; category: string; expense_date: string; amount_cents: number };
 type SettingsRow = { monthly_goal_cents: number; reserve_percent: number };
 
@@ -23,8 +25,9 @@ function productFromRow(item: ProductRow) {
   };
 }
 
-function appointmentFromRow(item: AppointmentRow) {
+function appointmentFromRow(item: AppointmentRow, payments: PaymentRow[]) {
   const totalCostCents = item.product_cost_cents + item.extra_cost_cents + item.payment_fee_cents;
+  const paidCents = payments.reduce((sum, payment) => sum + payment.amount_cents, 0);
   return {
     id: item.id,
     clientId: item.client_id,
@@ -39,6 +42,9 @@ function appointmentFromRow(item: AppointmentRow) {
     paymentFeeCents: item.payment_fee_cents,
     totalCostCents,
     profitCents: item.amount_cents - totalCostCents,
+    paidCents,
+    pendingCents: Math.max(0, item.amount_cents - paidCents),
+    payments: payments.map((payment) => ({ id: payment.id, amountCents: payment.amount_cents, kind: payment.kind, paidAt: payment.paid_at, note: payment.note ?? "" })),
   };
 }
 
@@ -51,19 +57,21 @@ function expenseFromRow(item: ExpenseRow) {
 }
 
 export async function getStudioData() {
-  const [clientsResult, productsResult, appointmentsResult, expensesResult, settingsResult] = await Promise.all([
+  const [clientsResult, productsResult, appointmentsResult, paymentsResult, expensesResult, settingsResult] = await Promise.all([
     supabase.from("clients").select("id,name,phone,notes,created_at").order("name", { ascending: true }),
     supabase.from("products").select("id,name,purchase_price_cents,total_amount,unit,use_per_service").order("created_at", { ascending: false }),
     supabase.from("appointments").select("id,client_id,client_name,service,service_date,service_time,status,amount_cents,product_cost_cents,extra_cost_cents,payment_fee_cents").order("service_date", { ascending: false }).order("service_time", { ascending: false }),
+    supabase.from("payments").select("id,appointment_id,amount_cents,kind,paid_at,note").order("paid_at", { ascending: false }).order("created_at", { ascending: false }),
     supabase.from("expenses").select("id,description,category,expense_date,amount_cents").order("expense_date", { ascending: false }),
     supabase.from("studio_settings").select("monthly_goal_cents,reserve_percent").maybeSingle(),
   ]);
-  fail(clientsResult.error); fail(productsResult.error); fail(appointmentsResult.error); fail(expensesResult.error); fail(settingsResult.error);
+  fail(clientsResult.error); fail(productsResult.error); fail(appointmentsResult.error); fail(paymentsResult.error); fail(expensesResult.error); fail(settingsResult.error);
   const settings = settingsResult.data as SettingsRow | null;
+  const payments = (paymentsResult.data ?? []) as PaymentRow[];
   return {
     clients: ((clientsResult.data ?? []) as ClientRow[]).map(clientFromRow),
     products: ((productsResult.data ?? []) as ProductRow[]).map(productFromRow),
-    appointments: ((appointmentsResult.data ?? []) as AppointmentRow[]).map(appointmentFromRow),
+    appointments: ((appointmentsResult.data ?? []) as AppointmentRow[]).map((appointment) => appointmentFromRow(appointment, payments.filter((payment) => payment.appointment_id === appointment.id))),
     expenses: ((expensesResult.data ?? []) as ExpenseRow[]).map(expenseFromRow),
     settings: {
       monthlyGoalCents: settings?.monthly_goal_cents ?? 500000,
@@ -89,13 +97,26 @@ export async function studioRequest(url: string, init?: RequestInit) {
     const clientResult = await supabase.from("clients").select("id,name").eq("id", clientId).maybeSingle();
     fail(clientResult.error);
     if (!clientResult.data) throw new Error("Escolha uma cliente cadastrada.");
+    const amountCents = Number(payload.amountCents);
+    const depositCents = Math.max(0, Number(payload.depositCents ?? 0));
+    if (depositCents > amountCents) throw new Error("O sinal não pode ser maior que o valor do atendimento.");
     const result = await supabase.from("appointments").insert({
       client_id: clientResult.data.id, client_name: clientResult.data.name, service: String(payload.service ?? "").trim(), service_date: payload.serviceDate,
       service_time: payload.serviceTime, status: "scheduled",
-      amount_cents: payload.amountCents, product_cost_cents: productCostCents,
+      amount_cents: amountCents, product_cost_cents: productCostCents,
       extra_cost_cents: Math.max(0, Number(payload.extraCostCents ?? 0)), payment_fee_cents: Math.max(0, Number(payload.paymentFeeCents ?? 0)),
-    });
-    fail(result.error); return { ok: true };
+    }).select("id").single();
+    fail(result.error);
+    const appointmentId = result.data?.id;
+    if (!appointmentId) throw new Error("Não foi possível identificar o atendimento criado.");
+    if (depositCents > 0) {
+      const paymentResult = await supabase.from("payments").insert({ appointment_id: appointmentId, amount_cents: depositCents, kind: "deposit", paid_at: payload.depositPaidAt });
+      if (paymentResult.error) {
+        await supabase.from("appointments").delete().eq("id", appointmentId);
+        fail(paymentResult.error);
+      }
+    }
+    return { ok: true };
   }
 
   if (method === "PUT" && path.pathname.endsWith("/appointments")) {
@@ -103,6 +124,25 @@ export async function studioRequest(url: string, init?: RequestInit) {
     const status = String(payload.status ?? "") as AppointmentStatus;
     if (!allowedStatuses.includes(status)) throw new Error("Status de atendimento inválido.");
     const result = await supabase.from("appointments").update({ status }).eq("id", Number(payload.id));
+    fail(result.error); return { ok: true };
+  }
+
+  if (method === "POST" && path.pathname.endsWith("/payments")) {
+    const appointmentId = Number(payload.appointmentId);
+    const amountCents = Number(payload.amountCents);
+    const allowedKinds: PaymentKind[] = ["deposit", "partial", "final"];
+    const kind = String(payload.kind ?? "") as PaymentKind;
+    if (!Number.isInteger(amountCents) || amountCents <= 0) throw new Error("Informe um valor de pagamento válido.");
+    if (!allowedKinds.includes(kind)) throw new Error("Tipo de pagamento inválido.");
+    const [appointmentResult, paymentsResult] = await Promise.all([
+      supabase.from("appointments").select("amount_cents").eq("id", appointmentId).maybeSingle(),
+      supabase.from("payments").select("amount_cents").eq("appointment_id", appointmentId),
+    ]);
+    fail(appointmentResult.error); fail(paymentsResult.error);
+    if (!appointmentResult.data) throw new Error("Atendimento não encontrado.");
+    const paidCents = (paymentsResult.data ?? []).reduce((sum, payment) => sum + payment.amount_cents, 0);
+    if (amountCents > appointmentResult.data.amount_cents - paidCents) throw new Error("O pagamento não pode ser maior que o valor pendente.");
+    const result = await supabase.from("payments").insert({ appointment_id: appointmentId, amount_cents: amountCents, kind, paid_at: payload.paidAt, note: String(payload.note ?? "").trim() || null });
     fail(result.error); return { ok: true };
   }
 
