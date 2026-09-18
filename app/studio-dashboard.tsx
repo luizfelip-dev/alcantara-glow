@@ -264,7 +264,7 @@ async function downloadBackup(data: StudioData) {
   }
 }
 
-export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; onSignOut: () => void }) {
+export function StudioDashboard({ userEmail, onSignOut, testEnvironment = false }: { userEmail: string; onSignOut: () => void; testEnvironment?: boolean }) {
   const [data, setData] = useState<StudioData | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -367,7 +367,7 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
 
       <main className="workspace">
         <header className="topbar">
-          <div><img className="mobile-brand-logo" src="./studio-em-dia-logo.jpeg" alt="Studio em Dia" /><p className="eyebrow">Visão do mês</p><h1>{monthName.format(selectedMonthDate)}</h1></div>
+          <div><img className="mobile-brand-logo" src="./studio-em-dia-logo.jpeg" alt="Studio em Dia" />{testEnvironment ? <span className="test-badge test-badge--topbar">V2 · Testes</span> : null}<p className="eyebrow">Visão do mês</p><h1>{monthName.format(selectedMonthDate)}</h1></div>
           <div className="topbar-actions">
             <div className="month-switcher" aria-label="Escolher mês"><button type="button" onClick={() => moveMonth(-1)} aria-label="Mês anterior"><ChevronLeft /></button><button type="button" onClick={() => setSelectedMonth(monthKey())}>Hoje</button><button type="button" onClick={() => moveMonth(1)} aria-label="Próximo mês"><ChevronRight /></button></div>
             <Button className="report-action" variant="outline" onClick={printMonthlyReport}><Printer /> Relatório</Button><Button className="primary-action" onClick={() => setAppointmentOpen(true)}><Plus /> Novo atendimento</Button><button className="topbar-logout" type="button" onClick={onSignOut} aria-label="Sair da conta"><LogOut /></button>
