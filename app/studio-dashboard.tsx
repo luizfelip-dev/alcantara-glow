@@ -4,7 +4,8 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   ArrowDownRight, ArrowUpRight, Banknote, Box, CalendarDays, ChevronLeft,
   ChevronRight, CircleDollarSign, LayoutDashboard, Loader2, PackagePlus,
-  Download, LogOut, PiggyBank, Plus, ReceiptText, Settings, Target, Trash2, WalletCards,
+  Download, LogOut, Pencil, Phone, PiggyBank, Plus, ReceiptText, Settings, Target,
+  Trash2, UserPlus, Users, WalletCards,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -23,15 +24,17 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { Toaster } from "@/components/ui/sonner";
 import { getStudioData, studioRequest } from "@/lib/studio-api";
 
 type Product = { id: number; name: string; purchasePriceCents: number; totalAmount: number; unit: string; usePerService: number; costPerUseCents: number };
-type Appointment = { id: number; clientName: string; service: string; serviceDate: string; amountCents: number; productCostCents: number; extraCostCents: number; paymentFeeCents: number; totalCostCents: number; profitCents: number };
+type Client = { id: number; name: string; phone: string; notes: string; createdAt: string };
+type Appointment = { id: number; clientId: number | null; clientName: string; service: string; serviceDate: string; amountCents: number; productCostCents: number; extraCostCents: number; paymentFeeCents: number; totalCostCents: number; profitCents: number };
 type Expense = { id: number; description: string; category: string; expenseDate: string; amountCents: number };
 type StudioSettings = { monthlyGoalCents: number; reservePercent: number };
-type StudioData = { products: Product[]; appointments: Appointment[]; expenses: Expense[]; settings: StudioSettings };
-type DeleteTarget = { type: "appointments" | "expenses" | "products"; id: number; name: string } | null;
+type StudioData = { clients: Client[]; products: Product[]; appointments: Appointment[]; expenses: Expense[]; settings: StudioSettings };
+type DeleteTarget = { type: "appointments" | "clients" | "expenses" | "products"; id: number; name: string } | null;
 
 const brl = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const monthName = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" });
@@ -67,13 +70,14 @@ function decimalFromCents(value: number) {
 }
 
 function downloadBackup(data: StudioData) {
-  const header = ["tipo", "data", "nome", "detalhe", "valor_reais", "custo_reais", "lucro_reais", "quantidade", "unidade", "uso_medio"];
+  const header = ["tipo", "data", "nome", "detalhe", "valor_reais", "custo_reais", "lucro_reais", "quantidade", "unidade", "uso_medio", "telefone", "observacoes"];
   const rows: Array<Array<string | number>> = [
-    ...data.appointments.map((item) => ["Atendimento", item.serviceDate, item.clientName, item.service, decimalFromCents(item.amountCents), decimalFromCents(item.totalCostCents), decimalFromCents(item.profitCents), "", "", ""]),
-    ...data.expenses.map((item) => ["Gasto", item.expenseDate, item.description, item.category, decimalFromCents(item.amountCents), "", "", "", "", ""]),
-    ...data.products.map((item) => ["Produto", "", item.name, "", decimalFromCents(item.purchasePriceCents), decimalFromCents(item.costPerUseCents), "", item.totalAmount, item.unit, item.usePerService]),
-    ["Configuração", "", "Meta mensal", "", decimalFromCents(data.settings.monthlyGoalCents), "", "", "", "", ""],
-    ["Configuração", "", "Reserva", `${data.settings.reservePercent}%`, "", "", "", "", "", ""],
+    ...data.clients.map((item) => ["Cliente", item.createdAt.slice(0, 10), item.name, "", "", "", "", "", "", "", item.phone, item.notes]),
+    ...data.appointments.map((item) => ["Atendimento", item.serviceDate, item.clientName, item.service, decimalFromCents(item.amountCents), decimalFromCents(item.totalCostCents), decimalFromCents(item.profitCents), "", "", "", "", ""]),
+    ...data.expenses.map((item) => ["Gasto", item.expenseDate, item.description, item.category, decimalFromCents(item.amountCents), "", "", "", "", "", "", ""]),
+    ...data.products.map((item) => ["Produto", "", item.name, "", decimalFromCents(item.purchasePriceCents), decimalFromCents(item.costPerUseCents), "", item.totalAmount, item.unit, item.usePerService, "", ""]),
+    ["Configuração", "", "Meta mensal", "", decimalFromCents(data.settings.monthlyGoalCents), "", "", "", "", "", "", ""],
+    ["Configuração", "", "Reserva", `${data.settings.reservePercent}%`, "", "", "", "", "", "", "", ""],
   ];
   const csv = [header, ...rows].map((row) => row.map(csvCell).join(";")).join("\r\n");
   const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
@@ -95,6 +99,8 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
   const [activeTab, setActiveTab] = useState("inicio");
   const [selectedMonth, setSelectedMonth] = useState(monthKey());
   const [appointmentOpen, setAppointmentOpen] = useState(false);
+  const [clientOpen, setClientOpen] = useState(false);
+  const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [productOpen, setProductOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -146,6 +152,7 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
         <div className="brand-block"><span className="brand-mark" aria-hidden="true">SD</span><div><p className="brand-name">Studio em Dia</p><p className="brand-subtitle">Gestão financeira para maquiadoras</p></div></div>
         <TabsList className="main-nav" aria-label="Navegação principal">
           <TabsTrigger value="inicio"><LayoutDashboard /><span>Início</span></TabsTrigger>
+          <TabsTrigger value="clientes"><Users /><span>Clientes</span></TabsTrigger>
           <TabsTrigger value="atendimentos"><CalendarDays /><span>Atendimentos</span></TabsTrigger>
           <TabsTrigger value="gastos"><ReceiptText /><span>Gastos</span></TabsTrigger>
           <TabsTrigger value="produtos"><Box /><span>Produtos</span></TabsTrigger>
@@ -197,6 +204,20 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
             : <EmptyState icon={<CalendarDays />} title="Nenhum atendimento neste mês" text="Quando você cadastrar um atendimento, ele aparecerá aqui." action="Cadastrar atendimento" onAction={() => setAppointmentOpen(true)} />}</section>
           </TabsContent>
 
+          <TabsContent value="clientes" className="page-content">
+            <PageHeading title="Clientes" description="Guarde os contatos, observações e o histórico de cada cliente." action="Nova cliente" onAction={() => { setEditingClient(null); setClientOpen(true); }} />
+            <section className="panel list-panel">{data?.clients.length ? <div className="client-list">{data.clients.map((client) => {
+              const history = data.appointments.filter((appointment) => appointment.clientId === client.id);
+              const lastAppointment = history[0];
+              return <article className="client-row" key={client.id}>
+                <div className="record-avatar" aria-hidden="true">{client.name.charAt(0).toUpperCase()}</div>
+                <div className="client-main"><strong>{client.name}</strong><span>{client.phone || "Telefone não informado"}</span>{client.notes ? <p>{client.notes}</p> : null}</div>
+                <div className="client-history"><span>Histórico</span><strong>{history.length} {history.length === 1 ? "atendimento" : "atendimentos"}</strong><small>{lastAppointment ? `Último em ${fullDate.format(parseDate(lastAppointment.serviceDate))}` : "Nenhum atendimento ainda"}</small></div>
+                <div className="row-actions"><button className="icon-button" type="button" aria-label={`Editar ${client.name}`} onClick={() => { setEditingClient(client); setClientOpen(true); }}><Pencil /></button><button className="icon-button" type="button" aria-label={`Excluir ${client.name}`} onClick={() => setDeleteTarget({ type: "clients", id: client.id, name: client.name })}><Trash2 /></button></div>
+              </article>;
+            })}</div> : <EmptyState icon={<Users />} title="Cadastre a primeira cliente" text="Depois, basta selecionar o nome dela ao criar um atendimento." action="Cadastrar cliente" onAction={() => { setEditingClient(null); setClientOpen(true); }} />}</section>
+          </TabsContent>
+
           <TabsContent value="gastos" className="page-content">
             <PageHeading title="Gastos" description="Registre compras, transporte, aluguel e outras despesas do studio." action="Adicionar gasto" onAction={() => setExpenseOpen(true)} />
             <section className="mini-summary"><span>Total no mês</span><strong>{money(totals.expenses)}</strong></section>
@@ -212,10 +233,11 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
         </>}
       </main>
 
-      <AppointmentDialog open={appointmentOpen} onOpenChange={setAppointmentOpen} products={data?.products ?? []} onSaved={loadData} />
+      <AppointmentDialog open={appointmentOpen} onOpenChange={setAppointmentOpen} clients={data?.clients ?? []} products={data?.products ?? []} onSaved={loadData} onAddClient={() => { setEditingClient(null); setClientOpen(true); }} />
+      <ClientDialog open={clientOpen} onOpenChange={setClientOpen} client={editingClient} onSaved={loadData} />
       <ExpenseDialog open={expenseOpen} onOpenChange={setExpenseOpen} onSaved={loadData} />
       <ProductDialog open={productOpen} onOpenChange={setProductOpen} onSaved={loadData} />
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} data={data ?? { products: [], appointments: [], expenses: [], settings: { monthlyGoalCents: 500000, reservePercent: 10 } }} onSaved={loadData} />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} data={data ?? { clients: [], products: [], appointments: [], expenses: [], settings: { monthlyGoalCents: 500000, reservePercent: 10 } }} onSaved={loadData} />
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Excluir este registro?</AlertDialogTitle><AlertDialogDescription>{deleteTarget ? `“${deleteTarget.name}” será excluído. Essa ação não pode ser desfeita.` : ""}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancelar</AlertDialogCancel><AlertDialogAction onClick={(event) => { event.preventDefault(); void deleteItem(); }} disabled={saving} className="delete-action">{saving ? <Loader2 className="animate-spin" /> : <Trash2 />} Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
       <Toaster position="top-center" richColors />
     </Tabs>
@@ -226,13 +248,40 @@ function PageHeading({ title, description, action, onAction }: { title: string; 
 function EmptyState({ icon, title, text, action, onAction }: { icon: React.ReactNode; title: string; text: string; action: string; onAction: () => void }) { return <div className="empty-state"><div className="empty-icon">{icon}</div><strong>{title}</strong><p>{text}</p><Button variant="outline" onClick={onAction}><Plus /> {action}</Button></div>; }
 function LoadingView() { return <div className="page-content loading-view" aria-label="Carregando"><div className="summary-grid">{[0,1,2,3].map((item) => <Skeleton className="h-40 rounded-[24px]" key={item} />)}</div><div className="dashboard-grid"><Skeleton className="h-64 rounded-[24px]" /><Skeleton className="h-64 rounded-[24px]" /></div><Skeleton className="h-72 rounded-[24px]" /></div>; }
 
-function AppointmentDialog({ open, onOpenChange, products, onSaved }: { open: boolean; onOpenChange: (open: boolean) => void; products: Product[]; onSaved: () => Promise<void> }) {
+function ClientDialog({ open, onOpenChange, client, onSaved }: { open: boolean; onOpenChange: (open: boolean) => void; client: Client | null; onSaved: () => Promise<void> }) {
+  const [saving, setSaving] = useState(false);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    setSaving(true);
+    try {
+      await requestJson("/api/clients", {
+        method: client ? "PUT" : "POST",
+        body: JSON.stringify({ id: client?.id, name: form.get("clientName"), phone: form.get("clientPhone"), notes: form.get("clientNotes") }),
+      });
+      toast.success(client ? "Cliente atualizada." : "Cliente cadastrada.");
+      formElement.reset();
+      onOpenChange(false);
+      await onSaved();
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Não foi possível salvar a cliente."); }
+    finally { setSaving(false); }
+  };
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="form-dialog form-dialog--small"><DialogHeader><DialogTitle>{client ? "Editar cliente" : "Nova cliente"}</DialogTitle><DialogDescription>Essas informações ficam disponíveis apenas na conta do studio.</DialogDescription></DialogHeader><form key={client?.id ?? "new"} onSubmit={submit} className="form-grid form-grid--single">
+    <Field id="clientName" label="Nome"><input className="field-control" id="clientName" name="clientName" required autoComplete="name" placeholder="Ex.: Fernanda" defaultValue={client?.name ?? ""} /></Field>
+    <Field id="clientPhone" label="Telefone" hint="Pode incluir DDD"><div className="input-with-icon"><Phone /><input id="clientPhone" name="clientPhone" type="tel" autoComplete="tel" placeholder="(11) 99999-9999" defaultValue={client?.phone ?? ""} /></div></Field>
+    <Field id="clientNotes" label="Observações" hint="Preferências, alergias ou informações importantes"><Textarea id="clientNotes" name="clientNotes" maxLength={1000} placeholder="Ex.: prefere maquiagem leve" defaultValue={client?.notes ?? ""} /></Field>
+    <DialogFooter className="form-footer"><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button><Button type="submit" disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : <UserPlus />} {client ? "Salvar alterações" : "Cadastrar cliente"}</Button></DialogFooter>
+  </form></DialogContent></Dialog>;
+}
+
+function AppointmentDialog({ open, onOpenChange, clients, products, onSaved, onAddClient }: { open: boolean; onOpenChange: (open: boolean) => void; clients: Client[]; products: Product[]; onSaved: () => Promise<void>; onAddClient: () => void }) {
   const [selected, setSelected] = useState<number[]>([]); const [selectedServices, setSelectedServices] = useState<string[]>([]); const [saving, setSaving] = useState(false);
   const productCost = products.filter((item) => selected.includes(item.id)).reduce((sum, item) => sum + item.costPerUseCents, 0);
-  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); if (!selectedServices.length) { toast.error("Escolha pelo menos um serviço."); return; } const formElement = event.currentTarget; const form = new FormData(formElement); setSaving(true); try { await requestJson("/api/appointments", { method: "POST", body: JSON.stringify({ clientName: form.get("clientName"), service: selectedServices.join(" + "), serviceDate: form.get("serviceDate"), amountCents: cents(String(form.get("amount") ?? "")), extraCostCents: cents(String(form.get("extraCost") ?? "")), paymentFeeCents: cents(String(form.get("paymentFee") ?? "")), productIds: selected }) }); toast.success("Atendimento salvo. O lucro já foi calculado."); formElement.reset(); setSelected([]); setSelectedServices([]); onOpenChange(false); await onSaved(); } catch (error) { toast.error(error instanceof Error ? error.message : "Não foi possível salvar."); } finally { setSaving(false); } };
+  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); if (!selectedServices.length) { toast.error("Escolha pelo menos um serviço."); return; } const formElement = event.currentTarget; const form = new FormData(formElement); setSaving(true); try { await requestJson("/api/appointments", { method: "POST", body: JSON.stringify({ clientId: Number(form.get("clientId")), service: selectedServices.join(" + "), serviceDate: form.get("serviceDate"), amountCents: cents(String(form.get("amount") ?? "")), extraCostCents: cents(String(form.get("extraCost") ?? "")), paymentFeeCents: cents(String(form.get("paymentFee") ?? "")), productIds: selected }) }); toast.success("Atendimento salvo. O lucro já foi calculado."); formElement.reset(); setSelected([]); setSelectedServices([]); onOpenChange(false); await onSaved(); } catch (error) { toast.error(error instanceof Error ? error.message : "Não foi possível salvar."); } finally { setSaving(false); } };
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="form-dialog"><DialogHeader><DialogTitle>Novo atendimento</DialogTitle><DialogDescription>Preencha o básico. Os cálculos são feitos automaticamente.</DialogDescription></DialogHeader><form onSubmit={submit} className="form-grid">
-    <Field id="clientName" label="Nome da cliente"><input className="field-control" id="clientName" name="clientName" required autoComplete="name" placeholder="Ex.: Fernanda" /></Field>
-    <div className="product-picker service-picker"><div className="product-picker-heading"><div><strong>Serviços</strong><span>Marque um ou mais para criar um combo</span></div></div>{SERVICES.map((service) => <label className="product-option service-option" key={service}><Checkbox checked={selectedServices.includes(service)} onCheckedChange={(checked) => setSelectedServices((current) => checked ? [...current, service] : current.filter((item) => item !== service))} /><span>{service}</span></label>)}</div>
+    <Field id="clientId" label="Cliente"><Select name="clientId" required disabled={!clients.length}><SelectTrigger id="clientId" className="field-control"><SelectValue placeholder={clients.length ? "Selecione a cliente" : "Cadastre uma cliente primeiro"} /></SelectTrigger><SelectContent>{clients.map((client) => <SelectItem key={client.id} value={String(client.id)}>{client.name}</SelectItem>)}</SelectContent></Select>{!clients.length ? <button className="inline-create-button" type="button" onClick={() => { onOpenChange(false); onAddClient(); }}><UserPlus /> Cadastrar cliente agora</button> : null}</Field>
+    <div className="product-picker service-picker"><div className="product-picker-heading"><div><strong>Serviços</strong><span>Escolha um ou mais serviços</span></div></div>{SERVICES.map((service) => <label className="product-option service-option" key={service}><Checkbox checked={selectedServices.includes(service)} onCheckedChange={(checked) => setSelectedServices((current) => checked ? [...current, service] : current.filter((item) => item !== service))} /><span>{service}</span></label>)}</div>
     <Field id="serviceDate" label="Data"><input className="field-control" id="serviceDate" name="serviceDate" type="date" defaultValue={todayInput()} required /></Field>
     <Field id="amount" label="Valor cobrado"><div className="money-input"><span>R$</span><input id="amount" name="amount" inputMode="decimal" placeholder="180,00" required /></div></Field>
     <Field id="extraCost" label="Outros custos" hint="Ex.: deslocamento ou cílios"><div className="money-input"><span>R$</span><input id="extraCost" name="extraCost" inputMode="decimal" placeholder="0,00" /></div></Field>
