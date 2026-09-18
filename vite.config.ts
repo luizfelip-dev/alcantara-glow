@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  base: "/alcantara-glow/",
+  base: "/studio-em-dia/",
   plugins: [react()],
   resolve: {
     alias: { "@": path.resolve(__dirname, ".") },
