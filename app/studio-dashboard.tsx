@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
-  ArrowDownRight, ArrowUpRight, Banknote, Box, CalendarDays, ChevronLeft, Clock3,
+  ArrowDownRight, ArrowUpRight, Banknote, Box, CalendarDays, CalendarPlus, ChevronLeft, Clock3,
   ChevronRight, CircleDollarSign, LayoutDashboard, Loader2, PackagePlus,
   Download, LogOut, Pencil, Phone, PiggyBank, Plus, ReceiptText, Settings, Target,
   Trash2, UserPlus, Users, WalletCards,
@@ -55,6 +55,59 @@ function money(value: number) { return brl.format(value / 100); }
 function todayInput() { const now = new Date(); const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000); return local.toISOString().slice(0, 10); }
 function monthKey(date = new Date()) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`; }
 function parseDate(value: string) { return new Date(`${value}T12:00:00`); }
+
+function calendarDateTime(date: string, time: string, addMinutes = 0) {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  const value = new Date(year, month - 1, day, hour, minute + addMinutes, 0);
+  const part = (number: number) => String(number).padStart(2, "0");
+  return `${value.getFullYear()}${part(value.getMonth() + 1)}${part(value.getDate())}T${part(value.getHours())}${part(value.getMinutes())}00`;
+}
+
+function calendarUtcStamp() {
+  return new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function escapeCalendarText(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
+}
+
+function appointmentDuration(service: string) {
+  return service.split(" + ").reduce((minutes, item) => minutes + (item === "Maquiagem social" ? 120 : 60), 0) || 60;
+}
+
+function downloadCalendarEvent(appointment: Appointment, client?: Client) {
+  if (!appointment.serviceTime) { toast.error("Informe o horário antes de adicionar à agenda."); return; }
+  const description = [
+    `Serviços: ${appointment.service}`,
+    `Valor: ${money(appointment.amountCents)}`,
+    `Recebido: ${money(appointment.paidCents)}`,
+    `Pendente: ${money(appointment.pendingCents)}`,
+    client?.phone ? `Telefone: ${client.phone}` : "",
+    client?.notes ? `Observações: ${client.notes}` : "",
+  ].filter(Boolean).join("\n");
+  const content = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Studio em Dia//Agenda V2//PT-BR", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+    "BEGIN:VEVENT", `UID:appointment-${appointment.id}@studio-em-dia`, `DTSTAMP:${calendarUtcStamp()}`,
+    `DTSTART:${calendarDateTime(appointment.serviceDate, appointment.serviceTime)}`,
+    `DTEND:${calendarDateTime(appointment.serviceDate, appointment.serviceTime, appointmentDuration(appointment.service))}`,
+    `SUMMARY:${escapeCalendarText(`${appointment.service} - ${appointment.clientName}`)}`,
+    `DESCRIPTION:${escapeCalendarText(description)}`,
+    "BEGIN:VALARM", "TRIGGER:-P1D", "ACTION:DISPLAY", "DESCRIPTION:Atendimento amanhã", "END:VALARM",
+    "BEGIN:VALARM", "TRIGGER:-PT2H", "ACTION:DISPLAY", "DESCRIPTION:Atendimento em 2 horas", "END:VALARM",
+    "END:VEVENT", "END:VCALENDAR",
+  ].join("\r\n");
+  const blob = new Blob([content], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `atendimento-${appointment.clientName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase()}.ics`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast.success("Evento pronto para adicionar à agenda.");
+}
 
 function Field({ id, label, hint, children }: { id: string; label: string; hint?: string; children: React.ReactNode }) {
   return <div className="field-group"><Label htmlFor={id}>{label}</Label>{children}{hint ? <span className="field-hint">{hint}</span> : null}</div>;
@@ -218,7 +271,7 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
 
           <TabsContent value="atendimentos" className="page-content">
             <PageHeading title="Agenda de atendimentos" description="Acompanhe horários e atualize cada atendimento até a conclusão." action="Novo atendimento" onAction={() => setAppointmentOpen(true)} />
-            <section className="panel list-panel">{monthAppointments.length ? <div className="data-list">{monthAppointments.map((item) => <article className={`data-row appointment-row appointment-row--${item.status}`} key={item.id}><div className="data-date"><strong>{parseDate(item.serviceDate).getDate()}</strong><span>{fullDate.format(parseDate(item.serviceDate)).split(" ")[2]}</span></div><div className="data-primary"><strong>{item.clientName}</strong><span>{item.service}</span><small><Clock3 /> {item.serviceTime || "Horário não informado"}</small></div><div className="data-metric"><span>Recebido</span><strong>{money(item.paidCents)}</strong></div><label className="status-control"><span>Status</span><select aria-label={`Status do atendimento de ${item.clientName}`} value={item.status} disabled={updatingAppointmentId === item.id} onChange={(event) => void updateAppointmentStatus(item.id, event.target.value as AppointmentStatus)}>{Object.entries(APPOINTMENT_STATUS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><div className={`data-metric ${item.pendingCents > 0 ? "data-metric--pending" : "data-metric--paid"}`}><span>Pendente</span><strong>{money(item.pendingCents)}</strong></div><div className="row-actions"><button className="icon-button payment-button" type="button" disabled={item.pendingCents === 0} aria-label={`Registrar pagamento de ${item.clientName}`} onClick={() => setPaymentAppointment(item)}><Banknote /></button><button className="icon-button" type="button" aria-label={`Excluir atendimento de ${item.clientName}`} onClick={() => setDeleteTarget({ type: "appointments", id: item.id, name: item.clientName })}><Trash2 /></button></div></article>)}</div>
+            <section className="panel list-panel">{monthAppointments.length ? <div className="data-list">{monthAppointments.map((item) => <article className={`data-row appointment-row appointment-row--${item.status}`} key={item.id}><div className="data-date"><strong>{parseDate(item.serviceDate).getDate()}</strong><span>{fullDate.format(parseDate(item.serviceDate)).split(" ")[2]}</span></div><div className="data-primary"><strong>{item.clientName}</strong><span>{item.service}</span><small><Clock3 /> {item.serviceTime || "Horário não informado"}</small></div><div className="data-metric"><span>Recebido</span><strong>{money(item.paidCents)}</strong></div><label className="status-control"><span>Status</span><select aria-label={`Status do atendimento de ${item.clientName}`} value={item.status} disabled={updatingAppointmentId === item.id} onChange={(event) => void updateAppointmentStatus(item.id, event.target.value as AppointmentStatus)}>{Object.entries(APPOINTMENT_STATUS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><div className={`data-metric ${item.pendingCents > 0 ? "data-metric--pending" : "data-metric--paid"}`}><span>Pendente</span><strong>{money(item.pendingCents)}</strong></div><div className="row-actions"><button className="icon-button payment-button" type="button" disabled={item.pendingCents === 0} aria-label={`Registrar pagamento de ${item.clientName}`} onClick={() => setPaymentAppointment(item)}><Banknote /></button><button className="icon-button calendar-button" type="button" disabled={!item.serviceTime || item.status === "cancelled"} aria-label={`Adicionar atendimento de ${item.clientName} à agenda`} onClick={() => downloadCalendarEvent(item, data?.clients.find((client) => client.id === item.clientId))}><CalendarPlus /></button><button className="icon-button" type="button" aria-label={`Excluir atendimento de ${item.clientName}`} onClick={() => setDeleteTarget({ type: "appointments", id: item.id, name: item.clientName })}><Trash2 /></button></div></article>)}</div>
             : <EmptyState icon={<CalendarDays />} title="Nenhum atendimento neste mês" text="Quando você cadastrar um atendimento, ele aparecerá aqui." action="Cadastrar atendimento" onAction={() => setAppointmentOpen(true)} />}</section>
           </TabsContent>
 
