@@ -80,7 +80,7 @@ function downloadBackup(data: StudioData) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `alcantara-glow-backup-${todayInput()}.csv`;
+  link.download = `studio-em-dia-backup-${todayInput()}.csv`;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -143,7 +143,7 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
   return (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="app-shell">
       <aside className="sidebar">
-        <div className="brand-block"><span className="brand-mark" aria-hidden="true">AG</span><div><p className="brand-name">Alcântara Glow</p><p className="brand-subtitle">finanças da beleza</p></div></div>
+        <div className="brand-block"><span className="brand-mark" aria-hidden="true">SD</span><div><p className="brand-name">Studio em Dia</p><p className="brand-subtitle">Gestão financeira para maquiadoras</p></div></div>
         <TabsList className="main-nav" aria-label="Navegação principal">
           <TabsTrigger value="inicio"><LayoutDashboard /><span>Início</span></TabsTrigger>
           <TabsTrigger value="atendimentos"><CalendarDays /><span>Atendimentos</span></TabsTrigger>
