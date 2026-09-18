@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   ArrowDownRight, ArrowUpRight, Banknote, Box, CalendarDays, CalendarPlus, ChevronLeft, Clock3,
   ChevronRight, CircleDollarSign, LayoutDashboard, Loader2, PackagePlus,
-  Download, LogOut, Pencil, Phone, PiggyBank, Plus, ReceiptText, Settings, Target,
+  Download, LogOut, MessageCircle, Pencil, Phone, PiggyBank, Plus, ReceiptText, Settings, Target,
   Trash2, UserPlus, Users, WalletCards,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -107,6 +107,28 @@ function downloadCalendarEvent(appointment: Appointment, client?: Client) {
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   toast.success("Evento pronto para adicionar à agenda.");
+}
+
+function whatsappPhone(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+  if ((digits.length === 12 || digits.length === 13) && digits.startsWith("55")) return digits;
+  return "";
+}
+
+function openWhatsAppConfirmation(appointment: Appointment, client?: Client) {
+  const phone = whatsappPhone(client?.phone ?? "");
+  if (!phone) { toast.error("Cadastre um telefone válido para esta cliente."); return; }
+  const date = appointment.serviceDate.split("-").reverse().join("/");
+  const message = [
+    `Olá, ${appointment.clientName}! Tudo bem?`,
+    "",
+    `Passando para confirmar seu atendimento de ${appointment.service}, no dia ${date}, às ${appointment.serviceTime}.`,
+    `Valor combinado: ${money(appointment.amountCents)}.`,
+    "",
+    "Você pode me confirmar, por favor? 💄✨",
+  ].join("\n");
+  window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
 }
 
 function Field({ id, label, hint, children }: { id: string; label: string; hint?: string; children: React.ReactNode }) {
@@ -271,7 +293,22 @@ export function StudioDashboard({ userEmail, onSignOut }: { userEmail: string; o
 
           <TabsContent value="atendimentos" className="page-content">
             <PageHeading title="Agenda de atendimentos" description="Acompanhe horários e atualize cada atendimento até a conclusão." action="Novo atendimento" onAction={() => setAppointmentOpen(true)} />
-            <section className="panel list-panel">{monthAppointments.length ? <div className="data-list">{monthAppointments.map((item) => <article className={`data-row appointment-row appointment-row--${item.status}`} key={item.id}><div className="data-date"><strong>{parseDate(item.serviceDate).getDate()}</strong><span>{fullDate.format(parseDate(item.serviceDate)).split(" ")[2]}</span></div><div className="data-primary"><strong>{item.clientName}</strong><span>{item.service}</span><small><Clock3 /> {item.serviceTime || "Horário não informado"}</small></div><div className="data-metric"><span>Recebido</span><strong>{money(item.paidCents)}</strong></div><label className="status-control"><span>Status</span><select aria-label={`Status do atendimento de ${item.clientName}`} value={item.status} disabled={updatingAppointmentId === item.id} onChange={(event) => void updateAppointmentStatus(item.id, event.target.value as AppointmentStatus)}>{Object.entries(APPOINTMENT_STATUS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><div className={`data-metric ${item.pendingCents > 0 ? "data-metric--pending" : "data-metric--paid"}`}><span>Pendente</span><strong>{money(item.pendingCents)}</strong></div><div className="row-actions"><button className="icon-button payment-button" type="button" disabled={item.pendingCents === 0} aria-label={`Registrar pagamento de ${item.clientName}`} onClick={() => setPaymentAppointment(item)}><Banknote /></button><button className="icon-button calendar-button" type="button" title="Adicionar à agenda" disabled={!item.serviceTime || item.status === "cancelled"} aria-label={`Adicionar atendimento de ${item.clientName} à agenda`} onClick={() => downloadCalendarEvent(item, data?.clients.find((client) => client.id === item.clientId))}><CalendarPlus /></button><button className="icon-button" type="button" aria-label={`Excluir atendimento de ${item.clientName}`} onClick={() => setDeleteTarget({ type: "appointments", id: item.id, name: item.clientName })}><Trash2 /></button></div></article>)}</div>
+            <section className="panel list-panel">{monthAppointments.length ? <div className="data-list">{monthAppointments.map((item) => {
+              const client = data?.clients.find((entry) => entry.id === item.clientId);
+              return <article className={`data-row appointment-row appointment-row--${item.status}`} key={item.id}>
+                <div className="data-date"><strong>{parseDate(item.serviceDate).getDate()}</strong><span>{fullDate.format(parseDate(item.serviceDate)).split(" ")[2]}</span></div>
+                <div className="data-primary"><strong>{item.clientName}</strong><span>{item.service}</span><small><Clock3 /> {item.serviceTime || "Horário não informado"}</small></div>
+                <div className="data-metric"><span>Recebido</span><strong>{money(item.paidCents)}</strong></div>
+                <label className="status-control"><span>Status</span><select aria-label={`Status do atendimento de ${item.clientName}`} value={item.status} disabled={updatingAppointmentId === item.id} onChange={(event) => void updateAppointmentStatus(item.id, event.target.value as AppointmentStatus)}>{Object.entries(APPOINTMENT_STATUS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                <div className={`data-metric ${item.pendingCents > 0 ? "data-metric--pending" : "data-metric--paid"}`}><span>Pendente</span><strong>{money(item.pendingCents)}</strong></div>
+                <div className="row-actions">
+                  <button className="icon-button payment-button" type="button" disabled={item.pendingCents === 0} title="Registrar pagamento" aria-label={`Registrar pagamento de ${item.clientName}`} onClick={() => setPaymentAppointment(item)}><Banknote /></button>
+                  <button className="icon-button calendar-button" type="button" title="Adicionar à agenda" disabled={!item.serviceTime || item.status === "cancelled"} aria-label={`Adicionar atendimento de ${item.clientName} à agenda`} onClick={() => downloadCalendarEvent(item, client)}><CalendarPlus /></button>
+                  <button className="icon-button whatsapp-button" type="button" title="Confirmar pelo WhatsApp" disabled={!client?.phone || !item.serviceTime || item.status === "cancelled"} aria-label={`Confirmar atendimento de ${item.clientName} pelo WhatsApp`} onClick={() => openWhatsAppConfirmation(item, client)}><MessageCircle /></button>
+                  <button className="icon-button" type="button" title="Excluir atendimento" aria-label={`Excluir atendimento de ${item.clientName}`} onClick={() => setDeleteTarget({ type: "appointments", id: item.id, name: item.clientName })}><Trash2 /></button>
+                </div>
+              </article>;
+            })}</div>
             : <EmptyState icon={<CalendarDays />} title="Nenhum atendimento neste mês" text="Quando você cadastrar um atendimento, ele aparecerá aqui." action="Cadastrar atendimento" onAction={() => setAppointmentOpen(true)} />}</section>
           </TabsContent>
 
