@@ -9,6 +9,23 @@ type PaymentRow = { id: number; appointment_id: number; amount_cents: number; ki
 type ExpenseRow = { id: number; description: string; category: string; expense_date: string; amount_cents: number };
 type SettingsRow = { monthly_goal_cents: number; reserve_percent: number };
 
+export type StudioBackup = {
+  format: "studio-em-dia";
+  version: 1;
+  exportedAt: string;
+  clients: Array<{ sourceId: number; name: string; phone: string; notes: string; createdAt: string }>;
+  products: Array<{ sourceId: number; name: string; purchasePriceCents: number; totalAmount: number; unit: string; usePerService: number }>;
+  appointments: Array<{ sourceId: number; clientId: number | null; clientName: string; service: string; serviceDate: string; serviceTime: string; status: AppointmentStatus; amountCents: number; productCostCents: number; extraCostCents: number; paymentFeeCents: number }>;
+  payments: Array<{ sourceId: number; appointmentId: number; amountCents: number; kind: PaymentKind; paidAt: string; note: string }>;
+  expenses: Array<{ sourceId: number; description: string; category: string; expenseDate: string; amountCents: number }>;
+  settings: { monthlyGoalCents: number; reservePercent: number };
+};
+
+export type StudioImportResult = {
+  added: number;
+  kept: number;
+};
+
 function fail(error: { message: string } | null) {
   if (error) throw new Error(error.message || "Não foi possível acessar os dados.");
 }
@@ -78,6 +95,202 @@ export async function getStudioData() {
       reservePercent: Number(settings?.reserve_percent ?? 10),
     },
   };
+}
+
+function normalizedText(value: string) {
+  return value.trim().toLocaleLowerCase("pt-BR").replace(/\s+/g, " ");
+}
+
+function clientMatchKey(client: { name: string; phone: string }) {
+  return `${normalizedText(client.name)}|${client.phone.replace(/\D/g, "")}`;
+}
+
+function productMatchKey(product: { name: string; purchasePriceCents: number; totalAmount: number; unit: string; usePerService: number }) {
+  return [normalizedText(product.name), product.purchasePriceCents, product.totalAmount, product.unit, product.usePerService].join("|");
+}
+
+function appointmentMatchKey(appointment: { clientName: string; service: string; serviceDate: string; serviceTime: string; amountCents: number }) {
+  return [normalizedText(appointment.clientName), normalizedText(appointment.service), appointment.serviceDate, appointment.serviceTime, appointment.amountCents].join("|");
+}
+
+function expenseMatchKey(expense: { description: string; category: string; expenseDate: string; amountCents: number }) {
+  return [normalizedText(expense.description), normalizedText(expense.category), expense.expenseDate, expense.amountCents].join("|");
+}
+
+function paymentMatchKey(payment: { amountCents: number; kind: PaymentKind; paidAt: string; note: string }) {
+  return [payment.amountCents, payment.kind, payment.paidAt, normalizedText(payment.note)].join("|");
+}
+
+export async function importStudioBackup(backup: StudioBackup): Promise<StudioImportResult> {
+  if (backup.format !== "studio-em-dia" || backup.version !== 1) throw new Error("Este arquivo não é um backup compatível do Studio em Dia.");
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  fail(authError);
+  if (!authData.user) throw new Error("Entre novamente antes de importar o backup.");
+
+  const current = await getStudioData();
+  let added = 0;
+  let kept = 0;
+
+  const clientIds = new Map<number, number>();
+  const knownClients = [...current.clients];
+  const matchedClientIds = new Set<number>();
+  for (const client of backup.clients) {
+    const existing = knownClients.find((item) => item.id === client.sourceId)
+      ?? knownClients.find((item) => !matchedClientIds.has(item.id) && clientMatchKey(item) === clientMatchKey(client));
+    if (existing) {
+      clientIds.set(client.sourceId, existing.id);
+      matchedClientIds.add(existing.id);
+      kept += 1;
+      continue;
+    }
+    const result = await supabase.from("clients").insert({
+      name: client.name,
+      phone: client.phone || null,
+      notes: client.notes || null,
+      created_at: client.createdAt,
+    }).select("id,name,phone,notes,created_at").single();
+    fail(result.error);
+    const inserted = result.data as ClientRow | null;
+    if (!inserted) throw new Error("Não foi possível confirmar uma cliente importada.");
+    const mapped = clientFromRow(inserted);
+    knownClients.push(mapped);
+    clientIds.set(client.sourceId, mapped.id);
+    matchedClientIds.add(mapped.id);
+    added += 1;
+  }
+
+  const knownProducts = [...current.products];
+  const matchedProductIds = new Set<number>();
+  for (const product of backup.products) {
+    const existing = knownProducts.find((item) => item.id === product.sourceId)
+      ?? knownProducts.find((item) => !matchedProductIds.has(item.id) && productMatchKey(item) === productMatchKey(product));
+    if (existing) {
+      matchedProductIds.add(existing.id);
+      kept += 1;
+      continue;
+    }
+    const result = await supabase.from("products").insert({
+      name: product.name,
+      purchase_price_cents: product.purchasePriceCents,
+      total_amount: product.totalAmount,
+      unit: product.unit,
+      use_per_service: product.usePerService,
+    }).select("id,name,purchase_price_cents,total_amount,unit,use_per_service").single();
+    fail(result.error);
+    if (!result.data) throw new Error("Não foi possível confirmar um produto importado.");
+    const inserted = productFromRow(result.data as ProductRow);
+    knownProducts.push(inserted);
+    matchedProductIds.add(inserted.id);
+    added += 1;
+  }
+
+  const appointmentIds = new Map<number, number>();
+  const knownAppointments = [...current.appointments];
+  const matchedAppointmentIds = new Set<number>();
+  for (const appointment of backup.appointments) {
+    const existing = knownAppointments.find((item) => item.id === appointment.sourceId)
+      ?? knownAppointments.find((item) => !matchedAppointmentIds.has(item.id) && appointmentMatchKey(item) === appointmentMatchKey(appointment));
+    if (existing) {
+      appointmentIds.set(appointment.sourceId, existing.id);
+      matchedAppointmentIds.add(existing.id);
+      kept += 1;
+      continue;
+    }
+    const result = await supabase.from("appointments").insert({
+      client_id: appointment.clientId === null ? null : clientIds.get(appointment.clientId) ?? null,
+      client_name: appointment.clientName,
+      service: appointment.service,
+      service_date: appointment.serviceDate,
+      service_time: appointment.serviceTime || null,
+      status: appointment.status,
+      amount_cents: appointment.amountCents,
+      product_cost_cents: appointment.productCostCents,
+      extra_cost_cents: appointment.extraCostCents,
+      payment_fee_cents: appointment.paymentFeeCents,
+    }).select("id,client_id,client_name,service,service_date,service_time,status,amount_cents,product_cost_cents,extra_cost_cents,payment_fee_cents").single();
+    fail(result.error);
+    const inserted = result.data as AppointmentRow | null;
+    if (!inserted) throw new Error("Não foi possível confirmar um atendimento importado.");
+    const mapped = appointmentFromRow(inserted, []);
+    knownAppointments.push(mapped);
+    appointmentIds.set(appointment.sourceId, mapped.id);
+    matchedAppointmentIds.add(mapped.id);
+    added += 1;
+  }
+
+  const knownExpenses = [...current.expenses];
+  const matchedExpenseIds = new Set<number>();
+  for (const expense of backup.expenses) {
+    const existing = knownExpenses.find((item) => item.id === expense.sourceId)
+      ?? knownExpenses.find((item) => !matchedExpenseIds.has(item.id) && expenseMatchKey(item) === expenseMatchKey(expense));
+    if (existing) {
+      matchedExpenseIds.add(existing.id);
+      kept += 1;
+      continue;
+    }
+    const result = await supabase.from("expenses").insert({
+      description: expense.description,
+      category: expense.category,
+      expense_date: expense.expenseDate,
+      amount_cents: expense.amountCents,
+    }).select("id,description,category,expense_date,amount_cents").single();
+    fail(result.error);
+    if (!result.data) throw new Error("Não foi possível confirmar um gasto importado.");
+    const inserted = expenseFromRow(result.data as ExpenseRow);
+    knownExpenses.push(inserted);
+    matchedExpenseIds.add(inserted.id);
+    added += 1;
+  }
+
+  const matchedPaymentIds = new Set<number>();
+  for (const payment of backup.payments) {
+    const appointmentId = appointmentIds.get(payment.appointmentId);
+    if (!appointmentId) throw new Error("O backup contém um pagamento sem atendimento correspondente.");
+    const appointment = knownAppointments.find((item) => item.id === appointmentId);
+    if (!appointment) throw new Error("Não foi possível localizar o atendimento de um pagamento.");
+    const existing = appointment.payments.find((item) => item.id === payment.sourceId)
+      ?? appointment.payments.find((item) => !matchedPaymentIds.has(item.id) && paymentMatchKey(item) === paymentMatchKey(payment));
+    if (existing) {
+      matchedPaymentIds.add(existing.id);
+      kept += 1;
+      continue;
+    }
+    const result = await supabase.from("payments").insert({
+      appointment_id: appointmentId,
+      amount_cents: payment.amountCents,
+      kind: payment.kind,
+      paid_at: payment.paidAt,
+      note: payment.note || null,
+    }).select("id,amount_cents,kind,paid_at,note").single();
+    fail(result.error);
+    if (!result.data) throw new Error("Não foi possível confirmar um pagamento importado.");
+    const insertedPayment = {
+      id: result.data.id,
+      amountCents: result.data.amount_cents,
+      kind: result.data.kind as PaymentKind,
+      paidAt: result.data.paid_at,
+      note: result.data.note ?? "",
+    };
+    appointment.payments.push(insertedPayment);
+    matchedPaymentIds.add(insertedPayment.id);
+    added += 1;
+  }
+
+  const settingsResult = await supabase.from("studio_settings").select("user_id").maybeSingle();
+  fail(settingsResult.error);
+  if (!settingsResult.data) {
+    const result = await supabase.from("studio_settings").insert({
+      user_id: authData.user.id,
+      monthly_goal_cents: backup.settings.monthlyGoalCents,
+      reserve_percent: backup.settings.reservePercent,
+    });
+    fail(result.error);
+    added += 1;
+  } else {
+    kept += 1;
+  }
+
+  return { added, kept };
 }
 
 export async function studioRequest(url: string, init?: RequestInit) {
