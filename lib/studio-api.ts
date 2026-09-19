@@ -60,7 +60,7 @@ export async function getStudioData() {
   const [clientsResult, productsResult, appointmentsResult, paymentsResult, expensesResult, settingsResult] = await Promise.all([
     supabase.from("clients").select("id,name,phone,notes,created_at").order("name", { ascending: true }),
     supabase.from("products").select("id,name,purchase_price_cents,total_amount,unit,use_per_service").order("created_at", { ascending: false }),
-    supabase.from("appointments").select("id,client_id,client_name,service,service_date,service_time,status,amount_cents,product_cost_cents,extra_cost_cents,payment_fee_cents").order("service_date", { ascending: false }).order("service_time", { ascending: false }),
+    supabase.from("appointments").select("id,client_id,client_name,service,service_date,service_time,status,amount_cents,product_cost_cents,extra_cost_cents,payment_fee_cents").order("service_date", { ascending: false }).order("service_time", { ascending: false }).order("id", { ascending: false }),
     supabase.from("payments").select("id,appointment_id,amount_cents,kind,paid_at,note").order("paid_at", { ascending: false }).order("created_at", { ascending: false }),
     supabase.from("expenses").select("id,description,category,expense_date,amount_cents").order("expense_date", { ascending: false }),
     supabase.from("studio_settings").select("monthly_goal_cents,reserve_percent").maybeSingle(),
@@ -121,11 +121,15 @@ export async function studioRequest(url: string, init?: RequestInit) {
 
   if (method === "PUT" && path.pathname.endsWith("/appointments")) {
     if ("status" in payload) {
+      const appointmentId = Number(payload.id);
       const allowedStatuses: AppointmentStatus[] = ["scheduled", "confirmed", "completed", "cancelled"];
       const status = String(payload.status ?? "") as AppointmentStatus;
+      if (!Number.isInteger(appointmentId) || appointmentId <= 0) throw new Error("Atendimento inválido.");
       if (!allowedStatuses.includes(status)) throw new Error("Status de atendimento inválido.");
-      const result = await supabase.from("appointments").update({ status }).eq("id", Number(payload.id));
-      fail(result.error); return { ok: true };
+      const result = await supabase.from("appointments").update({ status }).eq("id", appointmentId).select("id,status").single();
+      fail(result.error);
+      if (result.data?.id !== appointmentId || result.data.status !== status) throw new Error("Não foi possível confirmar a atualização deste atendimento.");
+      return { ok: true };
     }
     const appointmentId = Number(payload.id);
     const clientId = Number(payload.clientId);
