@@ -83,6 +83,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .auth-submit:disabled { cursor: wait; opacity: .7; }
 .auth-submit svg { width: 18px; }
 .auth-switch { width: 100%; margin-top: 20px; border: 0; color: #7e334c; background: transparent; cursor: pointer; font-family: var(--font-sans); font-size: .875rem; font-weight: 650; }
+.auth-secondary-actions { display: grid; gap: 12px; margin-top: 20px; }
+.auth-secondary-actions .auth-switch { margin-top: 0; }
 .auth-error, .auth-success { margin: 8px 0 0; border-radius: 10px; padding: 10px 12px; font-size: .82rem; line-height: 1.4; }
 .auth-error { color: #9b1c1c; background: #fff0f0; }
 .auth-success { color: #17633a; background: #eaf8f0; }
@@ -311,6 +313,9 @@ input.field-control { padding: 0 13px; }
 .backup-box strong { font-size: .84rem; }
 .backup-box span { color: #7d7a85; font-size: .72rem; line-height: 1.4; }
 .backup-box button { min-height: 40px; flex: 0 0 auto; border-radius: 11px; color: #8f2752; }
+.security-box { background: #fff9fb; }
+.password-form .field-group, .password-form .form-error { grid-column: 1 / -1; }
+.form-error { margin: 0; border-radius: 10px; padding: 10px 12px; color: #9b1c1c; background: #fff0f0; font-size: .8rem; line-height: 1.4; }
 .payment-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; border-radius: 15px; padding: 14px; background: #f6f5f7; }
 .payment-summary > span { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
 .payment-summary small { color: #7c7983; font-size: .68rem; }
