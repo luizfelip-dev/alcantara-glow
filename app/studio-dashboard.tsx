@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   ArrowDownRight, ArrowUpRight, Banknote, Box, CalendarDays, CalendarPlus, ChevronLeft, Clock3,
   ChevronRight, CircleDollarSign, LayoutDashboard, Loader2, PackagePlus,
-  Download, LogOut, MessageCircle, Pencil, Phone, PiggyBank, Plus, Printer, ReceiptText, Settings, Target,
+  Download, KeyRound, LogOut, MessageCircle, Pencil, Phone, PiggyBank, Plus, Printer, ReceiptText, Settings, Target,
   Trash2, UserPlus, Users, WalletCards,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -27,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Toaster } from "@/components/ui/sonner";
 import { getStudioData, studioRequest } from "@/lib/studio-api";
+import { supabase } from "@/lib/supabase";
 import { StudioBrand } from "@/src/studio-brand";
 
 type Product = { id: number; name: string; purchasePriceCents: number; totalAmount: number; unit: string; usePerService: number; costPerUseCents: number };
@@ -279,6 +280,7 @@ export function StudioDashboard({ userEmail, onSignOut, testEnvironment = false 
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [productOpen, setProductOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [saving, setSaving] = useState(false);
   const [updatingAppointmentId, setUpdatingAppointmentId] = useState<number | null>(null);
@@ -465,7 +467,8 @@ export function StudioDashboard({ userEmail, onSignOut, testEnvironment = false 
       <ClientDialog open={clientOpen} onOpenChange={setClientOpen} client={editingClient} onSaved={loadData} />
       <ExpenseDialog open={expenseOpen} onOpenChange={setExpenseOpen} onSaved={loadData} />
       <ProductDialog open={productOpen} onOpenChange={setProductOpen} onSaved={loadData} />
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} data={data ?? { clients: [], products: [], appointments: [], expenses: [], settings: { monthlyGoalCents: 500000, reservePercent: 10 } }} onSaved={loadData} />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} data={data ?? { clients: [], products: [], appointments: [], expenses: [], settings: { monthlyGoalCents: 500000, reservePercent: 10 } }} onSaved={loadData} onChangePassword={() => { setSettingsOpen(false); setPasswordOpen(true); }} />
+      <PasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Excluir este registro?</AlertDialogTitle><AlertDialogDescription>{deleteTarget ? `“${deleteTarget.name}” será excluído. Essa ação não pode ser desfeita.` : ""}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancelar</AlertDialogCancel><AlertDialogAction onClick={(event) => { event.preventDefault(); void deleteItem(); }} disabled={saving} className="delete-action">{saving ? <Loader2 className="animate-spin" /> : <Trash2 />} Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
       <Toaster position="top-center" richColors />
     </Tabs>
@@ -595,13 +598,49 @@ function ProductDialog({ open, onOpenChange, onSaved }: { open: boolean; onOpenC
   </form></DialogContent></Dialog>;
 }
 
-function SettingsDialog({ open, onOpenChange, data, onSaved }: { open: boolean; onOpenChange: (open: boolean) => void; data: StudioData; onSaved: () => Promise<void> }) {
+function SettingsDialog({ open, onOpenChange, data, onSaved, onChangePassword }: { open: boolean; onOpenChange: (open: boolean) => void; data: StudioData; onSaved: () => Promise<void>; onChangePassword: () => void }) {
   const [saving, setSaving] = useState(false);
   const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); setSaving(true); try { await requestJson("/api/settings", { method: "PUT", body: JSON.stringify({ monthlyGoalCents: cents(String(form.get("monthlyGoal") ?? "")), reservePercent: Number(String(form.get("reservePercent") ?? "").replace(",", ".")) }) }); toast.success("Meta e reserva atualizadas."); onOpenChange(false); await onSaved(); } catch (error) { toast.error(error instanceof Error ? error.message : "Não foi possível salvar."); } finally { setSaving(false); } };
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="form-dialog form-dialog--small"><DialogHeader><DialogTitle>Meta e reserva</DialogTitle><DialogDescription>Você pode mudar esses valores quando quiser.</DialogDescription></DialogHeader><form onSubmit={submit} className="form-grid">
     <Field id="monthlyGoal" label="Meta de faturamento mensal"><div className="money-input"><span>R$</span><input id="monthlyGoal" name="monthlyGoal" inputMode="decimal" required defaultValue={(data.settings.monthlyGoalCents / 100).toFixed(2).replace(".", ",")} /></div></Field>
     <Field id="reservePercent" label="Porcentagem para reserva" hint="Ex.: 10 significa guardar 10% do faturamento"><div className="percent-input"><input id="reservePercent" name="reservePercent" type="number" min="0" max="100" step="0.5" defaultValue={data.settings.reservePercent} required /><span>%</span></div></Field>
     <div className="backup-box"><div><strong>Exportar dados</strong><span>Baixe manualmente um arquivo Excel organizado em abas, com resumo, clientes, atendimentos, pagamentos, gastos, produtos e configurações.</span></div><Button type="button" variant="outline" onClick={() => void downloadBackup(data)}><Download /> Exportar Excel</Button></div>
+    <div className="backup-box security-box"><div><strong>Segurança da conta</strong><span>Troque a senha sem alterar clientes, atendimentos, produtos ou qualquer outro dado do studio.</span></div><Button type="button" variant="outline" onClick={onChangePassword}><KeyRound /> Alterar senha</Button></div>
     <DialogFooter className="form-footer"><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button><Button type="submit" disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : <Target />} Salvar preferências</Button></DialogFooter>
+  </form></DialogContent></Dialog>;
+}
+
+function PasswordDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const currentPassword = String(form.get("currentPassword") ?? "");
+    const password = String(form.get("newPassword") ?? "");
+    const confirmation = String(form.get("passwordConfirmation") ?? "");
+    if (password !== confirmation) { setError("A nova senha e a confirmação precisam ser iguais."); return; }
+    if (password === currentPassword) { setError("A nova senha precisa ser diferente da senha atual."); return; }
+    setSaving(true); setError("");
+    const { error: updateError } = await supabase.auth.updateUser({ password, current_password: currentPassword });
+    if (updateError) {
+      setError(updateError.message.toLowerCase().includes("password") ? "A senha atual está incorreta ou a nova senha não atende aos requisitos." : "Não foi possível alterar a senha. Tente novamente.");
+      setSaving(false);
+      return;
+    }
+    toast.success("Senha alterada com sucesso.");
+    formElement.reset();
+    onOpenChange(false);
+    setSaving(false);
+  };
+
+  return <Dialog open={open} onOpenChange={(nextOpen) => { setError(""); onOpenChange(nextOpen); }}><DialogContent className="form-dialog form-dialog--small"><DialogHeader><DialogTitle>Alterar senha</DialogTitle><DialogDescription>Use pelo menos 12 caracteres. Seus dados do studio não serão alterados.</DialogDescription></DialogHeader><form onSubmit={submit} className="form-grid password-form">
+    <Field id="currentPassword" label="Senha atual"><input className="field-control" id="currentPassword" name="currentPassword" type="password" autoComplete="current-password" required placeholder="Digite a senha atual" /></Field>
+    <Field id="newPassword" label="Nova senha"><input className="field-control" id="newPassword" name="newPassword" type="password" autoComplete="new-password" minLength={12} required placeholder="Mínimo de 12 caracteres" /></Field>
+    <Field id="passwordConfirmation" label="Confirmar nova senha"><input className="field-control" id="passwordConfirmation" name="passwordConfirmation" type="password" autoComplete="new-password" minLength={12} required placeholder="Digite novamente" /></Field>
+    {error ? <p className="form-error" role="alert">{error}</p> : null}
+    <DialogFooter className="form-footer"><Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button><Button type="submit" disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : <KeyRound />} Salvar nova senha</Button></DialogFooter>
   </form></DialogContent></Dialog>;
 }
