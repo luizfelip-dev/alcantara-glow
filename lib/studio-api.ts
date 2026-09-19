@@ -121,6 +121,49 @@ function paymentMatchKey(payment: { amountCents: number; kind: PaymentKind; paid
   return [payment.amountCents, payment.kind, payment.paidAt, normalizedText(payment.note)].join("|");
 }
 
+function findImportMatch<T extends { id: number }, U extends { sourceId: number }>(
+  existingItems: T[],
+  importedItem: U,
+  matchedIds: Set<number>,
+  matchKey: (item: T | U) => string,
+) {
+  const importedKey = matchKey(importedItem);
+  return existingItems.find((item) => !matchedIds.has(item.id) && item.id === importedItem.sourceId && matchKey(item) === importedKey)
+    ?? existingItems.find((item) => !matchedIds.has(item.id) && matchKey(item) === importedKey);
+}
+
+function validatePaymentMerge(current: Awaited<ReturnType<typeof getStudioData>>, backup: StudioBackup) {
+  const matchedAppointmentIds = new Set<number>();
+  const existingBySourceId = new Map<number, (typeof current.appointments)[number]>();
+
+  for (const importedAppointment of backup.appointments) {
+    const existing = findImportMatch(current.appointments, importedAppointment, matchedAppointmentIds, appointmentMatchKey);
+    if (!existing) continue;
+    matchedAppointmentIds.add(existing.id);
+    existingBySourceId.set(importedAppointment.sourceId, existing);
+  }
+
+  for (const importedAppointment of backup.appointments) {
+    const existingAppointment = existingBySourceId.get(importedAppointment.sourceId);
+    if (!existingAppointment) continue;
+
+    const matchedPaymentIds = new Set<number>();
+    let mergedPaidCents = existingAppointment.paidCents;
+    for (const importedPayment of backup.payments.filter((payment) => payment.appointmentId === importedAppointment.sourceId)) {
+      const existingPayment = findImportMatch(existingAppointment.payments, importedPayment, matchedPaymentIds, paymentMatchKey);
+      if (existingPayment) {
+        matchedPaymentIds.add(existingPayment.id);
+        continue;
+      }
+      mergedPaidCents += importedPayment.amountCents;
+    }
+
+    if (mergedPaidCents > existingAppointment.amountCents) {
+      throw new Error(`A mesclagem deixaria o valor recebido de ${existingAppointment.clientName} acima do valor do atendimento. Revise os pagamentos desse backup antes de importar.`);
+    }
+  }
+}
+
 export async function importStudioBackup(backup: StudioBackup): Promise<StudioImportResult> {
   if (backup.format !== "studio-em-dia" || backup.version !== 1) throw new Error("Este arquivo não é um backup compatível do Studio em Dia.");
   const { data: authData, error: authError } = await supabase.auth.getUser();
@@ -128,6 +171,7 @@ export async function importStudioBackup(backup: StudioBackup): Promise<StudioIm
   if (!authData.user) throw new Error("Entre novamente antes de importar o backup.");
 
   const current = await getStudioData();
+  validatePaymentMerge(current, backup);
   let added = 0;
   let kept = 0;
 
@@ -135,8 +179,7 @@ export async function importStudioBackup(backup: StudioBackup): Promise<StudioIm
   const knownClients = [...current.clients];
   const matchedClientIds = new Set<number>();
   for (const client of backup.clients) {
-    const existing = knownClients.find((item) => item.id === client.sourceId)
-      ?? knownClients.find((item) => !matchedClientIds.has(item.id) && clientMatchKey(item) === clientMatchKey(client));
+    const existing = findImportMatch(knownClients, client, matchedClientIds, clientMatchKey);
     if (existing) {
       clientIds.set(client.sourceId, existing.id);
       matchedClientIds.add(existing.id);
@@ -162,8 +205,7 @@ export async function importStudioBackup(backup: StudioBackup): Promise<StudioIm
   const knownProducts = [...current.products];
   const matchedProductIds = new Set<number>();
   for (const product of backup.products) {
-    const existing = knownProducts.find((item) => item.id === product.sourceId)
-      ?? knownProducts.find((item) => !matchedProductIds.has(item.id) && productMatchKey(item) === productMatchKey(product));
+    const existing = findImportMatch(knownProducts, product, matchedProductIds, productMatchKey);
     if (existing) {
       matchedProductIds.add(existing.id);
       kept += 1;
@@ -188,8 +230,7 @@ export async function importStudioBackup(backup: StudioBackup): Promise<StudioIm
   const knownAppointments = [...current.appointments];
   const matchedAppointmentIds = new Set<number>();
   for (const appointment of backup.appointments) {
-    const existing = knownAppointments.find((item) => item.id === appointment.sourceId)
-      ?? knownAppointments.find((item) => !matchedAppointmentIds.has(item.id) && appointmentMatchKey(item) === appointmentMatchKey(appointment));
+    const existing = findImportMatch(knownAppointments, appointment, matchedAppointmentIds, appointmentMatchKey);
     if (existing) {
       appointmentIds.set(appointment.sourceId, existing.id);
       matchedAppointmentIds.add(existing.id);
@@ -221,8 +262,7 @@ export async function importStudioBackup(backup: StudioBackup): Promise<StudioIm
   const knownExpenses = [...current.expenses];
   const matchedExpenseIds = new Set<number>();
   for (const expense of backup.expenses) {
-    const existing = knownExpenses.find((item) => item.id === expense.sourceId)
-      ?? knownExpenses.find((item) => !matchedExpenseIds.has(item.id) && expenseMatchKey(item) === expenseMatchKey(expense));
+    const existing = findImportMatch(knownExpenses, expense, matchedExpenseIds, expenseMatchKey);
     if (existing) {
       matchedExpenseIds.add(existing.id);
       kept += 1;
@@ -248,12 +288,15 @@ export async function importStudioBackup(backup: StudioBackup): Promise<StudioIm
     if (!appointmentId) throw new Error("O backup contém um pagamento sem atendimento correspondente.");
     const appointment = knownAppointments.find((item) => item.id === appointmentId);
     if (!appointment) throw new Error("Não foi possível localizar o atendimento de um pagamento.");
-    const existing = appointment.payments.find((item) => item.id === payment.sourceId)
-      ?? appointment.payments.find((item) => !matchedPaymentIds.has(item.id) && paymentMatchKey(item) === paymentMatchKey(payment));
+    const existing = findImportMatch(appointment.payments, payment, matchedPaymentIds, paymentMatchKey);
     if (existing) {
       matchedPaymentIds.add(existing.id);
       kept += 1;
       continue;
+    }
+    const paidCents = appointment.payments.reduce((sum, item) => sum + item.amountCents, 0);
+    if (paidCents + payment.amountCents > appointment.amountCents) {
+      throw new Error(`O pagamento importado de ${appointment.clientName} ultrapassa o valor do atendimento.`);
     }
     const result = await supabase.from("payments").insert({
       appointment_id: appointmentId,
